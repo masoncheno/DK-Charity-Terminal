@@ -56,3 +56,19 @@ Those are separate adapters. The next build should add them one at a time and ca
 10. PWA/mobile polish
 
 The model should learn from logged predictions and outcomes with explicit model versions. It should never silently rewrite itself from a small number of bets.
+
+
+## RECOVERY NOTE — DO NOT OVERWRITE config.js
+
+This recovery package intentionally does NOT include `config.js`.
+
+When restoring the terminal, copy:
+- app.js
+- index.html
+- styles.css
+- README.md
+- supabase.sql (only if you need the schema file)
+
+Keep your existing working `config.js` with your Supabase URL + public anon key.
+
+If `config.js` was accidentally deleted, recreate it from your Supabase project's public URL and anon key. Never use the service_role key.
