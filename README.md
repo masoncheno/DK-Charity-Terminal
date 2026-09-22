@@ -1,74 +1,77 @@
-# Betting Terminal V4 — Working Foundation
+# Betting Terminal V5 — Live Shared Terminal
 
-This version deliberately starts with a small, reliable vertical slice instead of trying to build every phase at once.
+V5 is an additive upgrade from the working V4 foundation.
 
-## What works now
+## What changed
 
-- Real ESPN public scoreboard data for NFL, NBA, MLB, NHL, CFB, CBB, EPL and Champions League
-- Automatic game refresh
-- Games Center with search/filter
-- Click any game to open a game-specific page
-- Bet-this-game flow
-- Shared Supabase bet ledger
-- Local fallback when Supabase is not configured
-- Three bettor profiles
-- P/L, ROI, record, pending exposure
-- Transparent American-odds math
-- Model Lab foundation
-- Model prediction database table for future learning/backtesting
-- Dark terminal UI
+- Keeps the shared Supabase bet ledger and three-bettor setup.
+- Keeps the existing `config.js`; **do not replace it**.
+- Upgrades the Games Center with:
+  - live/upcoming/final filters
+  - team search
+  - ESPN event IDs
+  - venue/event information
+  - event market data when ESPN actually supplies it
+- Adds a game terminal with:
+  - Overview
+  - Market
+  - Stats
+  - Weather
+  - Bets
+- Adds a model board using transparent, available inputs instead of fabricated numbers.
+- Adds additive Supabase tables for game snapshots and prediction results.
+- Adds stronger responsive formatting and a more terminal-like layout.
+- Keeps local fallback if Supabase is temporarily unavailable.
 
-## What is intentionally NOT faked
+## Free data approach
 
-The free browser app does not invent sportsbook odds, player statistics, injuries, weather, or model edges.
+**Scores/schedules:** ESPN public scoreboard endpoints.
 
-Those are separate adapters. The next build should add them one at a time and cache/log their data.
+**Game detail:** ESPN public summary endpoint.
 
-## Free architecture
+**Market data:** only event odds returned by the ESPN feed. V5 does not claim unlimited free sportsbook odds. If the feed does not return odds, the UI says they are unavailable.
 
-- Hosting: GitHub Pages
-- Database/realtime: Supabase free tier
-- Scores/schedules: ESPN public scoreboard endpoints
-- Weather: Open-Meteo in the next adapter
-- Odds: replaceable adapter; truly free unlimited sportsbook odds are not something the browser can honestly guarantee
+**Weather:** ESPN event weather when available. The next adapter can add Open-Meteo venue geocoding without changing the rest of the app.
 
-## Install
+**Database:** Supabase free tier.
 
-1. Create a GitHub repository.
-2. Upload `index.html`, `styles.css`, `app.js`, `config.js`, and `supabase.sql`.
-3. Create a free Supabase project.
-4. Run `supabase.sql` in the SQL Editor.
-5. Enable Realtime for `public.bets`.
-6. Put the Supabase URL and public anon key in `config.js`.
-7. Enable GitHub Pages from the repository's main branch/root.
+**Hosting:** GitHub Pages.
 
-## Build order from here
+## Install V5
 
-1. Game detail data tabs
-2. Free weather adapter
-3. Odds adapter + caching
-4. Team/player statistical warehouse
-5. Prediction logging
-6. Sport-specific predictive models
-7. Backtesting/calibration
-8. Automatic settlement and alerts
-9. Auth/RLS hardening
-10. PWA/mobile polish
+1. Back up the current working V4 repository.
+2. Replace `app.js`, `index.html`, `styles.css`, `README.md`, and optionally run the additive `supabase.sql`.
+3. **Keep your current working `config.js` exactly as it is.**
+4. If you run the SQL, run the whole V5 `supabase.sql` in Supabase SQL Editor.
+5. Make sure Realtime remains enabled for `public.bets`.
+6. Commit and let GitHub Pages deploy.
+7. Hard refresh the site (`Ctrl + Shift + R`).
 
-The model should learn from logged predictions and outcomes with explicit model versions. It should never silently rewrite itself from a small number of bets.
+## Expected config.js
 
+```js
+window.BT_CONFIG = {
+  SUPABASE_URL: "https://YOUR-PROJECT.supabase.co/rest/v1/",
+  SUPABASE_ANON_KEY: "YOUR_PUBLIC_ANON_KEY",
+  ROOM_CODE: "FRIENDS-1",
+  ESPN_REFRESH_MS: 60000
+};
+```
 
-## RECOVERY NOTE — DO NOT OVERWRITE config.js
+If V4 is already connected, do not change these values.
 
-This recovery package intentionally does NOT include `config.js`.
+## V5 build philosophy
 
-When restoring the terminal, copy:
-- app.js
-- index.html
-- styles.css
-- README.md
-- supabase.sql (only if you need the schema file)
+The terminal should prefer a missing-data message over fake data. A future trained model should only learn from logged predictions and settled outcomes, with model version, sample size, calibration and backtests recorded.
 
-Keep your existing working `config.js` with your Supabase URL + public anon key.
+## Next build
 
-If `config.js` was accidentally deleted, recreate it from your Supabase project's public URL and anon key. Never use the service_role key.
+V6 can add:
+- automatic prediction logging per game
+- historical team-form cache
+- sport-specific features
+- player/team stat panels
+- line movement snapshots when a free source supplies them
+- calibration and backtesting dashboards
+- automatic bet settlement
+- PWA/mobile polish

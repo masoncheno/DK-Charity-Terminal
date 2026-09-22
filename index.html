@@ -1,65 +1,49 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#080a0e">
-  <title>Betting Terminal</title>
-  <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07090d">
+<title>Betting Terminal V5</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div id="app">
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark">BT</div>
-      <div><strong>BETTING TERMINAL</strong><span>LIVE SPORTS · DATA · MODEL</span></div>
-    </div>
-    <div class="top-actions">
-      <span id="connectionDot" class="status-dot offline"></span>
-      <span id="connectionText">Local mode</span>
-      <button id="refreshBtn" class="ghost">↻ Refresh</button>
-      <button id="addBetTop" class="primary">+ Add Bet</button>
-    </div>
-  </header>
-
-  <nav class="tabs">
-    <button class="tab active" data-page="dashboard">Command</button>
-    <button class="tab" data-page="games">Games</button>
-    <button class="tab" data-page="bets">Bets</button>
-    <button class="tab" data-page="analytics">Analytics</button>
-    <button class="tab" data-page="model">Model Lab</button>
-    <button class="tab" data-page="settings">Settings</button>
-  </nav>
-
-  <main id="main"></main>
+<header class="topbar">
+  <div class="brand"><div class="brand-mark">BT</div><div><strong>BETTING TERMINAL</strong><span>V5 · LIVE SPORTS · DATA · MODEL</span></div></div>
+  <div class="top-actions"><span id="connectionDot" class="status-dot offline"></span><span id="connectionText">Connecting…</span><button id="refreshBtn" class="ghost">↻ Refresh</button><button id="addBetTop" class="primary">+ Add Bet</button></div>
+</header>
+<nav class="tabs">
+<button class="tab active" data-page="dashboard">Command</button>
+<button class="tab" data-page="games">Games</button>
+<button class="tab" data-page="bets">Bets</button>
+<button class="tab" data-page="analytics">Analytics</button>
+<button class="tab" data-page="model">Model Lab</button>
+<button class="tab" data-page="settings">Settings</button>
+</nav>
+<main id="main"></main>
 </div>
 
 <div id="modal" class="modal hidden">
-  <div class="modal-card">
-    <div class="modal-head"><h2 id="modalTitle">Add Bet</h2><button id="closeModal" class="icon">×</button></div>
-    <form id="betForm">
-      <div class="form-grid">
-        <label>Bettor<select id="betBettor"><option>Mason</option><option>Friend 1</option><option>Friend 2</option></select></label>
-        <label>Sport<select id="betSport"></select></label>
-        <label>Game / matchup<input id="betGame" required placeholder="Select or type a matchup"></label>
-        <label>Bet type<select id="betType"><option>Moneyline</option><option>Spread</option><option>Total</option><option>Player Prop</option><option>Team Prop</option><option>Parlay</option><option>Future</option><option>Other</option></select></label>
-        <label>Selection<input id="betSelection" required placeholder="Colts +3.5"></label>
-        <label>American odds<input id="betOdds" type="number" required placeholder="-110"></label>
-        <label>Stake ($)<input id="betStake" type="number" min="0" step="0.01" required placeholder="25"></label>
-        <label>Sportsbook<input id="betBook" placeholder="DraftKings"></label>
-        <label>Result<select id="betResult"><option>Pending</option><option>Win</option><option>Loss</option><option>Push</option></select></label>
-        <label>Notes<textarea id="betNotes" placeholder="Why I liked it..."></textarea></label>
-      </div>
-      <div class="form-actions">
-        <button type="button" id="cancelBet" class="ghost">Cancel</button>
-        <button class="primary" type="submit">Save Bet</button>
-      </div>
-    </form>
-  </div>
+<div class="modal-card">
+<div class="modal-head"><h2>Add Bet</h2><button id="closeModal" class="icon">×</button></div>
+<form id="betForm">
+<div class="form-grid">
+<label>Bettor<select id="betBettor"><option>Mason</option><option>Friend 1</option><option>Friend 2</option></select></label>
+<label>Sport<select id="betSport"></select></label>
+<label>Game / matchup<input id="betGame" required placeholder="Select or type a matchup"></label>
+<label>Bet type<select id="betType"><option>Moneyline</option><option>Spread</option><option>Total</option><option>Player Prop</option><option>Team Prop</option><option>Parlay</option><option>Future</option><option>Other</option></select></label>
+<label>Selection<input id="betSelection" required placeholder="Team / player / line"></label>
+<label>American odds<input id="betOdds" type="number" required placeholder="-110"></label>
+<label>Stake ($)<input id="betStake" type="number" min="0" step="0.01" required placeholder="25"></label>
+<label>Sportsbook<input id="betBook" placeholder="DraftKings"></label>
+<label>Result<select id="betResult"><option>Pending</option><option>Win</option><option>Loss</option><option>Push</option></select></label>
+<label class="full">Notes<textarea id="betNotes" placeholder="Why I liked it, line, injury note, etc."></textarea></label>
 </div>
-
+<div class="form-actions"><button type="button" id="cancelBet" class="ghost">Cancel</button><button class="primary" type="submit">Save Bet</button></div>
+</form>
+</div></div>
 <script src="config.js"></script>
 <script src="app.js"></script>
-</body>
-</html>
+</body></html>
