@@ -1,8 +1,19 @@
-# Betting Terminal V4 — Working Foundation
+# Betting Terminal V5 — Game Intelligence
 
 This version deliberately starts with a small, reliable vertical slice instead of trying to build every phase at once.
 
 ## What works now
+
+### V5 — Game Intelligence
+- DraftKings-style matchup/game page with a real game header and tabbed navigation
+- Team statistics when exposed by ESPN
+- Recent games for both teams when exposed by ESPN
+- Current standings for the league when exposed by ESPN
+- Home/away context and scoring averages when available
+- Player leaders and player/roster information when available
+- Real game-specific ESPN summary data loaded when a matchup is opened
+- Detail data is cached in-browser for faster revisits
+
 
 - Real ESPN public scoreboard data for NFL, NBA, MLB, NHL, CFB, CBB, EPL and Champions League
 - Automatic game refresh
