@@ -1,30 +1,58 @@
-# Betting Terminal V6 — Market Intelligence
+# Betting Terminal V4 — Working Foundation
 
-## Replace these files
-- `index.html`
-- `app.js`
-- `styles.css`
-- `README.md`
+This version deliberately starts with a small, reliable vertical slice instead of trying to build every phase at once.
 
-## KEEP these from your working project
-- `config.js` — **do not replace**
-- `supabase.sql` — **do not replace**
+## What works now
 
-### V5 Local Mode fix
-V6 loads the Supabase SDK first, then your existing `config.js`, then `app.js`. It accepts the common config names used by the previous working build: `APP_CONFIG`, `CONFIG`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and related aliases. It directly tests the existing `bets` table before declaring the shared database connected. It does **not** silently create a local-only betting mode.
+- Real ESPN public scoreboard data for NFL, NBA, MLB, NHL, CFB, CBB, EPL and Champions League
+- Automatic game refresh
+- Games Center with search/filter
+- Click any game to open a game-specific page
+- Bet-this-game flow
+- Shared Supabase bet ledger
+- Local fallback when Supabase is not configured
+- Three bettor profiles
+- P/L, ROI, record, pending exposure
+- Transparent American-odds math
+- Model Lab foundation
+- Model prediction database table for future learning/backtesting
+- Dark terminal UI
 
-If the existing config is unavailable, V6 displays a database error rather than falsely claiming that local data is shared.
+## What is intentionally NOT faked
 
-## V6 features
-- Live ESPN scoreboard feeds for NFL, NBA, MLB, NHL, college football, college basketball, EPL and Champions League.
-- Date navigation.
-- DraftKings-style game intelligence drawer.
-- Available moneylines and totals.
-- Implied probability and transparent baseline model edge.
-- Available player leader information.
-- League standings.
-- Existing Supabase shared betting ledger and realtime refresh.
-- No fake games, fake odds, or fabricated statistics.
-- GitHub Pages compatible and no paid backend required by the front end.
+The free browser app does not invent sportsbook odds, player statistics, injuries, weather, or model edges.
 
-The browser client follows Supabase's documented `@supabase/supabase-js` initialization pattern. Keep your existing working credentials/configuration.
+Those are separate adapters. The next build should add them one at a time and cache/log their data.
+
+## Free architecture
+
+- Hosting: GitHub Pages
+- Database/realtime: Supabase free tier
+- Scores/schedules: ESPN public scoreboard endpoints
+- Weather: Open-Meteo in the next adapter
+- Odds: replaceable adapter; truly free unlimited sportsbook odds are not something the browser can honestly guarantee
+
+## Install
+
+1. Create a GitHub repository.
+2. Upload `index.html`, `styles.css`, `app.js`, `config.js`, and `supabase.sql`.
+3. Create a free Supabase project.
+4. Run `supabase.sql` in the SQL Editor.
+5. Enable Realtime for `public.bets`.
+6. Put the Supabase URL and public anon key in `config.js`.
+7. Enable GitHub Pages from the repository's main branch/root.
+
+## Build order from here
+
+1. Game detail data tabs
+2. Free weather adapter
+3. Odds adapter + caching
+4. Team/player statistical warehouse
+5. Prediction logging
+6. Sport-specific predictive models
+7. Backtesting/calibration
+8. Automatic settlement and alerts
+9. Auth/RLS hardening
+10. PWA/mobile polish
+
+The model should learn from logged predictions and outcomes with explicit model versions. It should never silently rewrite itself from a small number of bets.
