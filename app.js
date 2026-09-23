@@ -56,7 +56,7 @@ function metric(label,value,cl=""){
 }
 
 
-function modelVersion(){ return "V7-baseline-1"; }
+function modelVersion(){ return "V8-baseline-1"; }
 
 function snapshotId(g){
   return `${cfg.ROOM_CODE||"FRIENDS-1"}:${g.sourceId}:${Date.now()}`;
@@ -104,7 +104,7 @@ async function loadModelHistory(){
     ]);
     if(!p.error && p.data) state.predictions=p.data;
     if(!s.error && s.data) state.snapshots=s.data;
-  }catch(e){ console.warn("V6 history load failed",e); }
+  }catch(e){ console.warn("V8 history load failed",e); }
 }
 
 async function logPrediction(g, selection, probability, odds){
@@ -271,7 +271,7 @@ function betsPage(){
 
 function gamesPage(){
   const filtered=filteredGames();
-  return `<div class="page-title"><div><div class="eyebrow">REAL SCOREBOARD FEED</div><h1>Games Center</h1><p>Schedules and scores from ESPN's public scoreboard endpoints. Click a game for the V7 game terminal.</p></div><button class="ghost" id="refreshGames">↻ Refresh</button></div>
+  return `<div class="page-title"><div><div class="eyebrow">REAL SCOREBOARD FEED</div><h1>Games Center</h1><p>Schedules and scores from ESPN's public scoreboard endpoints. Click a game for the V8 game terminal.</p></div><button class="ghost" id="refreshGames">↻ Refresh</button></div>
   <div class="filters"><select id="gameSportFilter"><option value="">All sports</option>${SPORTS.map(x=>`<option ${state.filters.sport===x[0]?"selected":""}>${x[0]}</option>`).join("")}</select>
   <select id="gameStatusFilter"><option value="all">All statuses</option><option value="in">Live</option><option value="pre">Upcoming</option><option value="post">Final</option></select>
   <input id="gameSearch" value="${esc(state.filters.search)}" placeholder="Search team / matchup"></div>
@@ -283,78 +283,105 @@ function gameDetailPage(g){
   const d=state.gameData[g.id]||{};
   const m=modelForGame(g);
   const market=bestMarket(g);
-  return `<div class="page-title game-detail-title"><div><button class="ghost" id="backGames">← Games</button><div class="eyebrow">${esc(g.sport)} • ${esc(g.league||"")}</div><h1>${esc(g.away)} @ ${esc(g.home)}</h1><p><span class="detail-status ${g.status==="in"?"live":""}">${g.status==="in"?"LIVE":esc(g.statusText||"Scheduled")}</span> · ${formatDate(g.date)}${g.venue?` · ${esc(g.venue)}`:""}</p></div><button class="primary" id="betThisGame">+ Bet this game</button></div>
-  <div class="terminal-tabs">
-    <button class="detail-tab active" data-detail="overview">Overview</button>
-    <button class="detail-tab" data-detail="market">Market</button>
-    <button class="detail-tab" data-detail="stats">Stats</button>
-    <button class="detail-tab" data-detail="weather">Weather</button>
-    <button class="detail-tab" data-detail="bets">Bets</button>
-  </div>
-  <div id="detailContent">${detailOverview(g,m,market,d)}</div>`;
-}
-
-function detailOverview(g,m,market,d){
-  return `<div class="detail-market-strip">
-    ${metric("Game status",g.status==="in"?"LIVE":(g.statusText||"Scheduled"),g.status==="in"?"live-text":"")}
-    ${metric("Moneyline",market?(market.homeMoneyline!=null?`H ${fmtOdds(market.homeMoneyline)}`:"Available") : "Not available")}
-    ${metric("Spread",market?.spread!=null?market.spread:"Not available")}
-    ${metric("Total",market?.overUnder!=null?market.overUnder:"Not available")}
-  </div>
-  <div class="grid two">
-    <section class="card">
-      <div class="matchup"><div><div class="team-name">${esc(g.away)}</div><div class="team-score">${g.awayScore??"—"}</div></div><div class="versus">AT</div><div><div class="team-name">${esc(g.home)}</div><div class="team-score">${g.homeScore??"—"}</div></div></div>
-      <div class="edge-box">
-        <div class="model-factor"><span>Model state</span><b>${esc(m.label)}</b></div>
-        <div class="model-factor"><span>${esc(g.away)}</span><b>${m.awayProb}%</b></div>
-        <div class="model-factor"><span>${esc(g.home)}</span><b>${m.homeProb}%</b></div>
-        <div class="model-factor"><span>Market edge</span><b>${market?calculateEdge(market,m,g):"No market price"}</b></div><button class="primary" id="logGamePrediction" style="margin-top:12px">Log current home-side prediction</button>
+  const status=g.status==="in"?"LIVE":(g.statusText||"Scheduled");
+  const date=formatDate(g.date);
+  const score=(g.awayScore!=null&&g.homeScore!=null)?`${g.awayScore} — ${g.homeScore}`:"—";
+  return `<div class="game-terminal">
+    <div class="terminal-hero">
+      <div class="hero-top"><button class="ghost" id="backGames">← Games</button><span class="eyebrow">${esc(g.sport)} · ${esc(g.league||"")}</span><span class="terminal-live ${g.status==="in"?"is-live":""}">${g.status==="in"?"● LIVE":esc(status)}</span></div>
+      <div class="hero-matchup">
+        <div class="hero-team"><span>${esc(g.away)}</span><strong>${g.awayScore??"—"}</strong></div>
+        <div class="hero-center"><small>${esc(status)}</small><b>${esc(date)}</b><em>${esc(score)}</em></div>
+        <div class="hero-team home"><span>${esc(g.home)}</span><strong>${g.homeScore??"—"}</strong></div>
       </div>
-    </section>
-    <section class="card">
-      <div class="section-head"><h2>Event information</h2><span>live source</span></div>
-      ${infoRow("Venue",d.venue||g.venue||"Not available")}
-      ${infoRow("Broadcast",d.broadcasts?.join(", ")||"Not available")}
-      ${infoRow("Attendance",d.attendance??"Not available")}
-      ${infoRow("Source event ID",g.sourceId||"—")}
-      <div class="notice">Model probabilities are transparent baseline estimates, not guaranteed forecasts. V7 only displays an edge when a real market price and a model probability are both available.</div>
-    </section>
+      <div class="hero-meta"><span>Venue: ${esc(d.venue||g.venue||"Not available")}</span><span>Broadcast: ${esc(d.broadcasts?.join(", ")||"Not available")}</span><span>Weather: ${d.weather?"Available":"Not available"}</span><button class="primary" id="betThisGame">+ Bet this game</button></div>
+    </div>
+    <div class="terminal-tabs v8-tabs">
+      ${[["overview","Overview"],["market","Market"],["stats","Stats"],["news","Injuries / News"],["weather","Weather"],["model","Model"],["bets","Bets"]].map(([id,label])=>`<button class="detail-tab ${state.detailTab===id?"active":""}" data-detail="${id}">${label}</button>`).join("")}
+    </div>
+    <div id="detailContent">${detailTabContent(g,state.detailTab,d,m,market)}</div>
   </div>`;
 }
 
-function infoRow(a,b){return `<div class="kpi"><span>${esc(a)}</span><b>${esc(b)}</b></div>`;}
+function detailTabContent(g,tab,d,m,market){
+  if(tab==="market") return detailMarket(g);
+  if(tab==="stats") return detailStats(g,d);
+  if(tab==="news") return detailNews(g,d);
+  if(tab==="weather") return detailWeather(g,d);
+  if(tab==="model") return detailModel(g,m,market);
+  if(tab==="bets") return detailBets(g);
+  return detailOverview(g,m,market,d);
+}
+
+function detailOverview(g,m,market,d){
+  const homeImp=market?.homeMoneyline!=null?oddsToProb(market.homeMoneyline)*100:null;
+  const awayImp=market?.awayMoneyline!=null?oddsToProb(market.awayMoneyline)*100:null;
+  return `<div class="detail-market-strip v8-metrics">
+    ${metric("Game status",g.status==="in"?"LIVE":(g.statusText||"Scheduled"),g.status==="in"?"live-text":"")}
+    ${metric("Moneyline",market?`${g.away} ${market.awayMoneyline!=null?fmtOdds(market.awayMoneyline):"—"} · ${g.home} ${market.homeMoneyline!=null?fmtOdds(market.homeMoneyline):"—"}`:"Not available")}
+    ${metric("Spread",market?.spread!=null?market.spread:"Not available")}
+    ${metric("Total",market?.overUnder!=null?market.overUnder:"Not available")}
+  </div>
+  <div class="grid two v8-detail-grid">
+    <section class="card terminal-score-card">
+      <div class="section-head"><h2>Scoreboard</h2><span>${g.status==="in"?"Live feed":"Event feed"}</span></div>
+      <div class="big-score-row"><div><small>${esc(g.away)}</small><strong>${g.awayScore??"—"}</strong></div><span>@</span><div><small>${esc(g.home)}</small><strong>${g.homeScore??"—"}</strong></div></div>
+      <div class="terminal-subgrid">${infoRow("Game status",g.statusText||statusText(g))}${infoRow("Start",formatDate(g.date))}${infoRow("Venue",d.venue||g.venue||"Not available")}${infoRow("Broadcast",d.broadcasts?.join(", ")||"Not available")}</div>
+    </section>
+    <section class="card">
+      <div class="section-head"><h2>Market snapshot</h2><span>Only returned prices</span></div>
+      ${market?marketSnapshot(g,market):`<div class="empty">No sportsbook market was returned for this event. No prices are being invented.</div>`}
+    </section>
+  </div>
+  <div class="grid two v8-detail-grid">
+    <section class="card"><div class="section-head"><h2>Game information</h2><span>Source fields</span></div>${infoRow("League",g.league||g.sport)}${infoRow("Venue",d.venue||g.venue||"Not available")}${infoRow("Attendance",d.attendance??"Not available")}${infoRow("Event ID",g.sourceId||"—")}</section>
+    <section class="card"><div class="section-head"><h2>Model at a glance</h2><span>Baseline</span></div>${modelFactor("Model state",m.label)}${modelFactor(g.away,m.awayProb+"%")}${modelFactor(g.home,m.homeProb+"%")}${modelFactor("Market edge",market?calculateEdge(market,m,g):"No market price")}<button class="primary full-width" id="openModelTab">View full model</button></section>
+  </div>`;
+}
+function statusText(g){return g.status==="post"?"Final":g.status==="in"?"In progress":"Scheduled";}
+function marketSnapshot(g,o){return `<div class="market-snapshot"><div><span>${esc(g.away)} ML</span><b>${o.awayMoneyline!=null?fmtOdds(o.awayMoneyline):"—"}</b></div><div><span>Spread</span><b>${o.spread??"—"}</b></div><div><span>Total</span><b>${o.overUnder??"—"}</b></div><div><span>${esc(g.home)} ML</span><b>${o.homeMoneyline!=null?fmtOdds(o.homeMoneyline):"—"}</b></div></div><div class="source-note">${esc(o.provider||"ESPN feed")}${o.details?` · ${esc(o.details)}`:""}</div>`;}
+function modelFactor(a,b){return `<div class="model-factor"><span>${esc(a)}</span><b>${esc(b)}</b></div>`;}
 
 function detailMarket(g){
   const markets=g.odds||[];
-  return `<section class="card"><div class="section-head"><h2>Available market data</h2><span>${markets.length} market record${markets.length===1?"":"s"}</span></div>
-  ${markets.length?markets.map(o=>`<div class="market-card"><div><b>${esc(o.provider||"ESPN feed")}</b><small>${esc(o.details||"")}</small></div><div class="market-values">${o.spread!=null?`<span>Spread <b>${esc(o.spread)}</b></span>`:""}${o.overUnder!=null?`<span>Total <b>${esc(o.overUnder)}</b></span>`:""}${o.homeMoneyline!=null?`<span>Home ML <b>${fmtOdds(o.homeMoneyline)}</b></span>`:""}${o.awayMoneyline!=null?`<span>Away ML <b>${fmtOdds(o.awayMoneyline)}</b></span>`:""}</div></div>`).join(""):`<div class="empty">The ESPN event did not provide a market price for this game. No odds are being invented.</div>`}
-  </section>`;
+  return `<div class="grid two v8-detail-grid"><section class="card"><div class="section-head"><h2>Available market</h2><span>${markets.length} record${markets.length===1?"":"s"}</span></div>${markets.length?markets.map(o=>`<div class="market-terminal-card"><div class="market-source"><b>${esc(o.provider||"ESPN feed")}</b><small>${esc(o.details||"No line description returned")}</small></div><div class="market-line"><div><span>${esc(g.away)}</span><b>${o.awayMoneyline!=null?fmtOdds(o.awayMoneyline):"—"}</b></div><div><span>Spread</span><b>${o.spread??"—"}</b></div><div><span>Total</span><b>${o.overUnder??"—"}</b></div><div><span>${esc(g.home)}</span><b>${o.homeMoneyline!=null?fmtOdds(o.homeMoneyline):"—"}</b></div></div></div>`).join(""):`<div class="empty">No market prices were returned by the current event feed. Missing odds stay missing.</div>`}</section><section class="card"><div class="section-head"><h2>Market interpretation</h2><span>Descriptive</span></div>${markets.length?marketInterpretation(g,markets[0]):`<div class="empty">Market comparison will appear when prices are supplied.</div>`}</section></div>`;
 }
+function marketInterpretation(g,o){const h=o.homeMoneyline!=null?oddsToProb(o.homeMoneyline)*100:null,a=o.awayMoneyline!=null?oddsToProb(o.awayMoneyline)*100:null;return `<div class="terminal-subgrid">${infoRow("Home implied",h!=null?pct(h):"Not available")}${infoRow("Away implied",a!=null?pct(a):"Not available")}${infoRow("Spread",o.spread??"Not available")}${infoRow("Total",o.overUnder??"Not available")}</div><div class="notice">Implied probability is calculated from the returned American price. It does not account for sportsbook margin and is not a prediction.</div>`;}
 
 function detailStats(g,d){
   const comps=d.competitors||[];
-  if(!d.stats?.length && !comps.length) return `<section class="card"><div class="empty">Detailed box-score/team stats are not available from the event endpoint yet.</div></section>`;
-  return `<div class="grid two">${comps.map(c=>`<section class="card"><div class="section-head"><h2>${esc(c.team?.displayName||"Team")}</h2><span>${esc(c.score??"")}</span></div>${(c.statistics||[]).map(s=>infoRow(s.name||s.label,s.displayValue??s.value)).join("")||`<div class="empty">No statistics returned.</div>`}</section>`).join("")}</div>`;
+  if(!comps.length) return `<section class="card"><div class="empty">Detailed box-score/team stats are not available from the event endpoint yet.</div></section>`;
+  return `<div class="grid two v8-detail-grid">${comps.map(c=>`<section class="card"><div class="section-head"><h2>${esc(c.team?.displayName||"Team")}</h2><span>${esc(c.score??"")}</span></div>${(c.statistics||[]).map(s=>infoRow(s.name||s.label,s.displayValue??s.value)).join("")||`<div class="empty">No statistics returned for this team.</div>`}</section>`).join("")}</div>`;
+}
+
+function detailNews(g,d){
+  const injuries=d.injuries||[],news=d.news||[];
+  return `<div class="grid two v8-detail-grid"><section class="card"><div class="section-head"><h2>Injuries</h2><span>${injuries.length} returned</span></div>${injuries.length?injuries.map(x=>`<div class="news-item"><b>${esc(x.athlete?.displayName||x.name||"Player")}</b><span>${esc(x.status||x.type||"Status unavailable")}</span><small>${esc(x.details||x.description||"")}</small></div>`).join(""):`<div class="empty">No injury information was returned for this event. This does not mean there are no injuries.</div>`}</section><section class="card"><div class="section-head"><h2>News</h2><span>${news.length} returned</span></div>${news.length?news.slice(0,12).map(x=>`<div class="news-item"><b>${esc(x.headline||x.title||"News item")}</b><small>${esc(x.description||x.story||"")}</small><span>${esc(x.published||x.publishedAt||"")}</span></div>`).join(""):`<div class="empty">No event news was returned by the current source.</div>`}</section></div><div class="notice">Injuries and news are displayed only when the event feed returns them. Nothing is inferred or fabricated.</div>`;
 }
 
 function detailWeather(g,d){
   const w=d.weather||g.weather;
-  if(w) return `<section class="card"><div class="section-head"><h2>Weather</h2><span>event feed</span></div><div class="weather-grid">${infoRow("Condition",w.displayValue||w.condition||"—")}${infoRow("Temperature",w.temperature!=null?`${w.temperature}°`:"—")}${infoRow("Wind",w.windSpeed?`${w.windSpeed} mph`:"—")}${infoRow("Source","ESPN event data")}</div></section>`;
-  return `<section class="card"><div class="empty">No weather object was returned for this event. V7 does not fabricate conditions. Open-Meteo fallback is available when a venue city can be resolved.</div></section>`;
+  if(w) return `<section class="card"><div class="section-head"><h2>Weather</h2><span>Event feed</span></div><div class="weather-grid">${infoRow("Condition",w.displayValue||w.condition||"—")}${infoRow("Temperature",w.temperature!=null?`${w.temperature}°`:"—")}${infoRow("Wind",w.windSpeed?`${w.windSpeed} mph`:"—")}${infoRow("Source","ESPN event data")}</div></section>`;
+  return `<section class="card"><div class="empty">No weather object was returned for this event. Weather is not guessed.</div></section>`;
 }
+
+function detailModel(g,m,market){
+  const homeOdds=market?.homeMoneyline,awayOdds=market?.awayMoneyline;
+  const hi=homeOdds!=null?oddsToProb(homeOdds)*100:null, ai=awayOdds!=null?oddsToProb(awayOdds)*100:null;
+  return `<div class="grid two v8-detail-grid"><section class="card"><div class="section-head"><h2>Model probability</h2><span>V8 baseline</span></div><div class="probability-board"><div><small>${esc(g.away)}</small><strong>${m.awayProb}%</strong>${ai!=null?`<span>Market implied ${ai.toFixed(1)}%</span>`:"<span>Market implied —</span>"}</div><div><small>${esc(g.home)}</small><strong>${m.homeProb}%</strong>${hi!=null?`<span>Market implied ${hi.toFixed(1)}%</span>`:"<span>Market implied —</span>"}</div></div>${modelFactor("Model state",m.label)}${modelFactor("Data quality",m.label.includes("record")?"Team records available":"Limited inputs")}</section><section class="card"><div class="section-head"><h2>Factors used</h2><span>Transparent</span></div>${modelFactor("Team record",m.label.includes("record")?"Included":"Unavailable")}${modelFactor("Live score",g.status==="in"?"Included as live state":"Not used")}${modelFactor("Market price",market?"Available":"Unavailable")}${modelFactor("Recent form","Not currently returned by baseline")}</section></div><section class="card"><div class="section-head"><h2>Edge & interpretation</h2><span>No guarantee</span></div>${market?`<div class="grid four">${metric("Away model",m.awayProb+"%")}${metric("Away implied",ai!=null?pct(ai):"—")}${metric("Home model",m.homeProb+"%")}${metric("Home implied",hi!=null?pct(hi):"—")}</div><div class="notice">${calculateEdge(market,m,g)}. This is a transparent baseline calculation, not a guarantee or a claim of predictive accuracy.</div>`:`<div class="empty">An edge cannot be calculated until a matching market price is returned.</div>`}</section><section class="card"><div class="section-head"><h2>Prediction history</h2><span>${state.predictions.filter(p=>p.source_game_id===g.sourceId).length} records</span></div>${predictionHistoryForGame(g)}</section>`;
+}
+function predictionHistoryForGame(g){const ps=state.predictions.filter(p=>p.source_game_id===g.sourceId).slice(0,10);if(!ps.length)return `<div class="empty">No stored predictions for this game.</div>`;return `<div class="table-wrap"><table class="table"><thead><tr><th>Selection</th><th>Probability</th><th>Odds</th><th>Edge</th><th>Outcome</th></tr></thead><tbody>${ps.map(p=>`<tr><td>${esc(p.selection)}</td><td>${pct(p.probability)}</td><td>${p.market_odds!=null?fmtOdds(p.market_odds):"—"}</td><td>${p.edge!=null?pct(p.edge):"—"}</td><td>${esc(p.outcome||"Pending")}</td></tr>`).join("")}</tbody></table></div>`;}
 
 function detailBets(g){
   const bs=state.bets.filter(b=>b.game===`${g.away} @ ${g.home}` || b.game===g.name);
-  return `<section class="card"><div class="section-head"><h2>Group bets on this game</h2><button class="primary" id="betThisGame">+ Bet</button></div>${betTable(bs.slice().reverse())}</section>`;
+  return `<section class="card"><div class="section-head"><div><h2>Group bets on this game</h2><span>${bs.length} recorded</span></div><button class="primary" id="betThisGame">+ Bet</button></div>${bs.length?betTable(bs.slice().reverse()):`<div class="empty">No group bets are attached to this game yet.</div>`}</section>`;
 }
 
 function bestMarket(g){ return g.odds?.find(x=>x.homeMoneyline!=null||x.awayMoneyline!=null)||g.odds?.[0]||null; }
 function calculateEdge(o,m,g){
-  if(o.homeMoneyline!=null){
-    const p=Number(m.homeProb)/100, imp=oddsToProb(o.homeMoneyline);
-    return `${(p-imp)*100>=0?"+":""}${((p-imp)*100).toFixed(1)}% home ML`;
-  }
-  return "Price available; exact edge needs matching selection";
+  if(o.homeMoneyline!=null){const p=Number(m.homeProb)/100,imp=oddsToProb(o.homeMoneyline);return `${(p-imp)*100>=0?"+":""}${((p-imp)*100).toFixed(1)}% home ML`;}
+  if(o.awayMoneyline!=null){const p=Number(m.awayProb)/100,imp=oddsToProb(o.awayMoneyline);return `${(p-imp)*100>=0?"+":""}${((p-imp)*100).toFixed(1)}% away ML`;}
+  return "Price available; exact edge needs a matching moneyline";
 }
 
 function analyticsPage(){
@@ -380,7 +407,7 @@ function riskSnapshot(){
 }
 
 function modelPage(){
-  return `<div class="page-title"><div><div class="eyebrow">MODEL LAB • V7</div><h1>Solo Modeler</h1><p>V7 logs transparent predictions, game snapshots, market inputs and outcomes so the model can be evaluated over time.</p></div></div>
+  return `<div class="page-title"><div><div class="eyebrow">MODEL LAB • V8</div><h1>Solo Modeler</h1><p>V7 logs transparent predictions, game snapshots, market inputs and outcomes so the model can be evaluated over time.</p></div></div>
   <div class="grid two">
     <section class="card"><div class="section-head"><h2>Market calculator</h2><span>live math</span></div>
       <label>American odds<input id="modelOdds" type="number" value="-110"></label>
@@ -449,6 +476,7 @@ function bindPage(){
     state.selectedGame=g; state.page="game-detail"; render(); await loadGameDetails(g);
   }));
   document.querySelectorAll(".detail-tab").forEach(x=>x.addEventListener("click",()=>switchDetail(x.dataset.detail)));
+  $("#openModelTab")?.addEventListener("click",()=>switchDetail("model"));
   $("#logGamePrediction")?.addEventListener("click", async ()=>{
     const g=state.selectedGame, m=modelForGame(g), market=bestMarket(g);
     const odds=market?.homeMoneyline;
@@ -462,13 +490,12 @@ function bindPage(){
 }
 
 async function switchDetail(tab){
-  const g=state.selectedGame, d=state.gameData[g.id]||{};
+  const g=state.selectedGame; if(!g)return;
+  const d=state.gameData[g.id]||{}; state.detailTab=tab;
   document.querySelectorAll(".detail-tab").forEach(x=>x.classList.toggle("active",x.dataset.detail===tab));
-  if(tab==="overview") $("#detailContent").innerHTML=detailOverview(g,modelForGame(g),bestMarket(g),d);
-  if(tab==="market") $("#detailContent").innerHTML=detailMarket(g);
-  if(tab==="stats") $("#detailContent").innerHTML=detailStats(g,d);
-  if(tab==="weather") $("#detailContent").innerHTML=detailWeather(g,d);
-  if(tab==="bets") $("#detailContent").innerHTML=detailBets(g);
+  $("#detailContent").innerHTML=detailTabContent(g,tab,d,modelForGame(g),bestMarket(g));
+  $("#openModelTab")?.addEventListener("click",()=>switchDetail("model"));
+  $("#betThisGame")?.addEventListener("click",()=>{ const gg=state.selectedGame; openBet(); if(gg){$("#betGame").value=`${gg.away} @ ${gg.home}`;$("#betSport").value=gg.sport;} });
 }
 
 function filterBets(){
@@ -592,6 +619,9 @@ async function loadGameDetails(g){
     d.attendance=c?.attendance;
     d.broadcasts=(c?.broadcasts||[]).map(x=>x.names?.[0]||x.shortName).filter(Boolean);
     d.weather=c?.weather||summary.weather||g.weather;
+    d.injuries=summary.injuries||summary.injury||[];
+    d.news=summary.news?.articles||summary.news||[];
+    d.loaded=true;
     state.gameData[g.id]=d;
   }catch(e){d.error=e.message;state.gameData[g.id]=d;}
   if(state.page==="game-detail")render();

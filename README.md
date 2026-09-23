@@ -1,43 +1,45 @@
-# Betting Terminal V7 — Frontend-First Live Shared Sports Terminal
+# Betting Terminal V8 — Individual Game Terminal
 
-V7 is a **frontend-only upgrade** built directly on the working V6 terminal. The goal of this version is to improve the command center, game cards, individual game terminal, connection status, and navigation **without changing the existing database contract**.
+V8 is a **frontend-only upgrade** built on the V7 foundation. The main experience is now the individual game terminal.
 
-## ZIP contents
+## Critical connection rule
+
+**Do not replace, recreate, or modify the existing Supabase connection.**
+
+V8 does not change `config.js`, `supabase.sql`, Supabase tables, policies, keys, URLs, or database infrastructure. It continues using the existing `window.BT_CONFIG` and Supabase client already supplied by the deployment.
+
+## V8 game terminal
+
+Click any game in Games Center to open a full terminal with:
+
+- Overview — scoreboard, status, venue, broadcast, market snapshot
+- Market — returned moneyline/spread/total data and implied probabilities
+- Stats — event/team statistics returned by ESPN
+- Injuries / News — only information actually returned by the event feed
+- Weather — event weather when supplied
+- Model — baseline probabilities, implied probabilities, edge, factors and data-quality notes
+- Bets — group bets attached to the game
+
+Missing information is displayed as unavailable rather than fabricated.
+
+## Files
+
+The V8 ZIP contains exactly four frontend files:
 
 - `index.html`
 - `app.js`
 - `styles.css`
 - `README.md`
 
-## Connection protection — IMPORTANT
+Keep your existing `config.js` and `supabase.sql` in GitHub. Replace only the four files above.
 
-Keep your existing working `config.js` exactly as it is. Keep your existing Supabase database/schema exactly as it is. V7 does **not** include either file and does not require SQL changes.
+## Data sources
 
-The frontend still reads `window.BT_CONFIG`, creates the Supabase client from the existing project URL/public key, loads shared bets, and subscribes to the existing `bets` realtime stream. V7 also separates **database connection** from **realtime status**, so a working database connection is not incorrectly shown as offline just because realtime is unavailable.
+- Scores/schedules: ESPN public scoreboard endpoints
+- Event details: ESPN summary endpoint
+- Market data: only when the event feed returns it
+- Shared bet/history storage: existing Supabase infrastructure
 
-## V7 frontend upgrades
+## Important
 
-- Command Center rebuilt around the live terminal workflow.
-- Sport quick filters across the command center.
-- Better live/upcoming game cards with status, score, venue, market availability, and open-game action.
-- Individual game terminal with Overview / Market / Stats / Weather / Bets tabs.
-- Game detail header now surfaces LIVE status, date, venue, and market strip.
-- Clear connection states: OFFLINE, DATABASE CONNECTED, and LIVE SYNC.
-- Existing Supabase bets, snapshots, and prediction history remain connected.
-- Existing ESPN public scoreboard and event-summary feeds remain the frontend data sources.
-- Missing feed fields continue to display as unavailable rather than being fabricated.
-- No new database tables, policies, API keys, or backend services.
-
-## Deploy
-
-1. Back up the currently working version.
-2. Replace only `app.js`, `index.html`, `styles.css`, and `README.md`.
-3. **Do not replace `config.js`.**
-4. **Do not replace or rerun `supabase.sql`.**
-5. Push the four V7 files to GitHub Pages.
-6. Hard refresh with `Ctrl + Shift + R`.
-7. The header should show `DATABASE CONNECTED` or `LIVE SYNC` when the existing Supabase connection works.
-
-## V7 boundary
-
-This version intentionally does not attempt to rebuild the backend, change the schema, add paid APIs, or move the project to a new architecture. Future versions should continue to upgrade the frontend first while preserving the existing connection contract.
+The model shown in V8 is still the transparent baseline from the existing application. It is **not** presented as a trained predictive model. Later versions can improve the model without changing the game-terminal architecture or database connection.
