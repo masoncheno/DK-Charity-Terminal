@@ -2,7 +2,7 @@
 "use strict";
 
 const cfg = window.BT_CONFIG || {};
-const KEY = "bt_local_bets_v6";
+const KEY = "bt_local_bets_v7";
 const REFRESH = Number(cfg.ESPN_REFRESH_MS) || 60000;
 
 const state = {
@@ -14,6 +14,9 @@ const state = {
   snapshots: [],
   predictions: [],
   supabase: null,
+  dbConnected: false,
+  dbError: "",
+  dbCheckedAt: null,
   live: false,
   loading: false,
   lastRefresh: null,
@@ -186,7 +189,7 @@ function dashboard(){
     <section class="card"><div class="section-head"><h2>Recent Bets</h2><button class="ghost" data-go="bets">View all</button></div>${betTable(state.bets.slice().reverse().slice(0,8))}</section>
     <section class="card">
       <div class="section-head"><h2>Terminal Status</h2><span>${state.lastRefresh?state.lastRefresh.toLocaleTimeString():"—"}</span></div>
-      <div class="kpi"><span>Shared Supabase</span><b>${state.live?"CONNECTED":"NOT CONNECTED"}</b></div>
+      <div class="kpi"><span>Shared Supabase</span><b>${state.dbConnected?"CONNECTED":(state.live?"REALTIME ONLY":"NOT CONNECTED")}</b></div>
       <div class="kpi"><span>Score source</span><b>ESPN public feed</b></div>
       <div class="kpi"><span>Market source</span><b>ESPN event odds when supplied</b></div>
       <div class="kpi"><span>Weather</span><b>ESPN / Open-Meteo</b></div>
@@ -273,60 +276,100 @@ function gamesPage(){
 function gameDetailPage(g){
   if(!g) return `<div class="empty">No game selected.</div>`;
   const d=state.gameData[g.id]||{};
-  const m=modelForGame(g);
-  const market=bestMarket(g);
-  return `<div class="page-title"><div><button class="ghost" id="backGames">← Games</button><div class="eyebrow">${esc(g.sport)} • ${esc(g.league||"")}</div><h1>${esc(g.away)} @ ${esc(g.home)}</h1><p>${esc(g.statusText||"Scheduled")} · ${formatDate(g.date)}</p></div><button class="primary" id="betThisGame">Bet this game</button></div>
-  <div class="terminal-tabs">
-    <button class="detail-tab active" data-detail="overview">Overview</button>
-    <button class="detail-tab" data-detail="market">Market</button>
-    <button class="detail-tab" data-detail="stats">Stats</button>
-    <button class="detail-tab" data-detail="weather">Weather</button>
-    <button class="detail-tab" data-detail="bets">Bets</button>
+  const tab=state.detailTab||"overview";
+  return `<div class="page-title">
+    <div><button class="ghost" id="backGames">← Games</button><div class="eyebrow">${esc(g.sport)} · ${esc(g.league||"")}</div>
+    <h1>${esc(g.away)} @ ${esc(g.home)}</h1><p>${esc(g.statusText||"Scheduled")} · ${formatDate(g.date)}</p></div>
+    <button class="primary" id="betThisGame">Bet this game</button>
   </div>
-  <div id="detailContent">${detailOverview(g,m,market,d)}</div>`;
+  <section class="card game-hero">
+    <div class="game-hero-status"><span class="pill">${g.status==="in"?"LIVE":esc(g.statusText||"UPCOMING")}</span><span>${formatDate(g.date)}</span><span>${esc(g.league||g.sport)}</span></div>
+    <div class="hero-score"><div><small>${esc(g.away)}</small><strong>${g.awayScore??"—"}</strong></div><div class="hero-at">@</div><div><small>${esc(g.home)}</small><strong>${g.homeScore??"—"}</strong></div></div>
+    <div class="hero-markets">${heroMarket(g)}</div>
+  </section>
+  <div class="terminal-tabs detail-tabs-wide">
+    ${[["overview","Overview"],["comparison","Team Comparison"],["recent","Recent Games"],["standings","Standings"],["players","Players"],["scoring","Scoring"],["weather","Weather"],["bets","Bets"]].map(([id,label])=>`<button class="detail-tab ${tab===id?"active":""}" data-detail="${id}">${label}</button>`).join("")}
+  </div>
+  <div id="detailContent">${detailTabContent(g,d,tab)}</div>`;
 }
 
-function detailOverview(g,m,market,d){
+function heroMarket(g){
+  const m=bestMarket(g);
+  return `<div class="hero-market"><span>Moneyline <b>${m?.awayMoneyline!=null?fmtOdds(m.awayMoneyline):"—"} / ${m?.homeMoneyline!=null?fmtOdds(m.homeMoneyline):"—"}</b></span><span>Spread <b>${m?.spread!=null?esc(m.spread):"—"}</b></span><span>Total <b>${m?.overUnder!=null?esc(m.overUnder):"—"}</b></span></div>`;
+}
+
+function detailTabContent(g,d,tab){
+  if(tab==="overview") return detailOverview(g,d);
+  if(tab==="comparison") return detailComparison(g,d);
+  if(tab==="recent") return detailRecent(g,d);
+  if(tab==="standings") return detailStandings(g,d);
+  if(tab==="players") return detailPlayers(g,d);
+  if(tab==="scoring") return detailScoring(g,d);
+  if(tab==="weather") return detailWeather(g,d);
+  if(tab==="bets") return detailBets(g);
+  return detailOverview(g,d);
+}
+
+function detailOverview(g,d){
+  const m=bestMarket(g), a=d.away||{}, h=d.home||{};
   return `<div class="grid two">
-    <section class="card">
-      <div class="matchup"><div><div class="team-name">${esc(g.away)}</div><div class="team-score">${g.awayScore??"—"}</div></div><div class="versus">AT</div><div><div class="team-name">${esc(g.home)}</div><div class="team-score">${g.homeScore??"—"}</div></div></div>
-      <div class="edge-box">
-        <div class="model-factor"><span>Model state</span><b>${esc(m.label)}</b></div>
-        <div class="model-factor"><span>${esc(g.away)}</span><b>${m.awayProb}%</b></div>
-        <div class="model-factor"><span>${esc(g.home)}</span><b>${m.homeProb}%</b></div>
-        <div class="model-factor"><span>Market edge</span><b>${market?calculateEdge(market,m,g):"No market price"}</b></div><button class="primary" id="logGamePrediction" style="margin-top:12px">Log current home-side prediction</button>
-      </div>
+    <section class="card"><div class="section-head"><h2>Game Overview</h2><span>${d.updatedAt?"Updated "+formatDate(d.updatedAt):"Live source"}</span></div>
+      ${infoRow("Status",g.status==="in"?`LIVE · ${g.statusText||"In progress"}`:(g.statusText||"Scheduled"))}
+      ${infoRow("Game time",formatDate(g.date))}${infoRow("Venue",d.venue||g.venue||"Not available")}
+      ${infoRow("Away",`${g.away} · ${g.awayScore??"—"}`)}${infoRow("Home",`${g.home} · ${g.homeScore??"—"}`)}
+      ${infoRow("Moneyline",`${m?.awayMoneyline!=null?fmtOdds(m.awayMoneyline):"—"} / ${m?.homeMoneyline!=null?fmtOdds(m.homeMoneyline):"—"}`)}
+      ${infoRow("Spread",m?.spread!=null?m.spread:"Not available")}${infoRow("Total",m?.overUnder!=null?m.overUnder:"Not available")}
     </section>
-    <section class="card">
-      <div class="section-head"><h2>Event information</h2><span>live source</span></div>
-      ${infoRow("Venue",d.venue||g.venue||"Not available")}
-      ${infoRow("Broadcast",d.broadcasts?.join(", ")||"Not available")}
-      ${infoRow("Attendance",d.attendance??"Not available")}
-      ${infoRow("Source event ID",g.sourceId||"—")}
-      <div class="notice">Model probabilities are transparent baseline estimates, not guaranteed forecasts. V6 only displays an edge when a real market price and a model probability are both available.</div>
+    <section class="card"><div class="section-head"><h2>Quick Team Snapshot</h2><span>Free source data only</span></div>
+      ${comparisonMini("Record",a.record,h.record)}${comparisonMini("PPG",a.ppg,h.ppg)}${comparisonMini("Opp PPG",a.oppPpg,h.oppPpg)}${comparisonMini("Recent 5",a.recent5,h.recent5)}${comparisonMini("Home/Away",a.location,h.location)}
+      <div class="notice" style="margin-top:12px">Stats, player information and injuries are shown only when ESPN returns them for this event/team. Missing fields stay unavailable rather than being estimated.</div>
     </section>
   </div>`;
 }
+function comparisonMini(label,a,b){return `<div class="compare-row"><span>${esc(label)}</span><b>${esc(a??"—")}</b><b>${esc(b??"—")}</b></div>`;}
 
-function infoRow(a,b){return `<div class="kpi"><span>${esc(a)}</span><b>${esc(b)}</b></div>`;}
-
-function detailMarket(g){
-  const markets=g.odds||[];
-  return `<section class="card"><div class="section-head"><h2>Available market data</h2><span>${markets.length} market record${markets.length===1?"":"s"}</span></div>
-  ${markets.length?markets.map(o=>`<div class="market-card"><div><b>${esc(o.provider||"ESPN feed")}</b><small>${esc(o.details||"")}</small></div><div class="market-values">${o.spread!=null?`<span>Spread <b>${esc(o.spread)}</b></span>`:""}${o.overUnder!=null?`<span>Total <b>${esc(o.overUnder)}</b></span>`:""}${o.homeMoneyline!=null?`<span>Home ML <b>${fmtOdds(o.homeMoneyline)}</b></span>`:""}${o.awayMoneyline!=null?`<span>Away ML <b>${fmtOdds(o.awayMoneyline)}</b></span>`:""}</div></div>`).join(""):`<div class="empty">The ESPN event did not provide a market price for this game. No odds are being invented.</div>`}
+function detailComparison(g,d){
+  const a=d.away||{},h=d.home||{};
+  const rows=[
+    ["Record",a.record,h.record],["PPG",a.ppg,h.ppg],["Opp PPG",a.oppPpg,h.oppPpg],["FG%",a.fg,h.fg],["3P%",a.three,h.three],["RPG",a.rpg,h.rpg],["APG",a.apg,h.apg],["Recent 5",a.recent5,h.recent5],["Home/Away",a.location,h.location]
+  ];
+  return `<section class="card"><div class="section-head"><h2>Team Comparison</h2><span>${esc(g.away)} vs ${esc(g.home)}</span></div>
+    <div class="comparison-table"><div class="compare-head"><span></span><b>${esc(g.away)}</b><b>${esc(g.home)}</b></div>${rows.map(r=>comparisonMini(r[0],r[1],r[2])).join("")}</div>
+    <div class="notice" style="margin-top:14px">Comparison values come from the event summary/team data returned by ESPN. A dash means the free source did not provide that metric.</div>
   </section>`;
 }
 
-function detailStats(g,d){
-  const comps=d.competitors||[];
-  if(!d.stats?.length && !comps.length) return `<section class="card"><div class="empty">Detailed box-score/team stats are not available from the event endpoint yet.</div></section>`;
-  return `<div class="grid two">${comps.map(c=>`<section class="card"><div class="section-head"><h2>${esc(c.team?.displayName||"Team")}</h2><span>${esc(c.score??"")}</span></div>${(c.statistics||[]).map(s=>infoRow(s.name||s.label,s.displayValue??s.value)).join("")||`<div class="empty">No statistics returned.</div>`}</section>`).join("")}</div>`;
+function detailRecent(g,d){
+  return `<div class="grid two">${teamRecentCard(g.away,d.awayRecent||[],"Away")}${teamRecentCard(g.home,d.homeRecent||[],"Home")}</div>`;
+}
+function teamRecentCard(name,games,label){
+  return `<section class="card"><div class="section-head"><h2>${esc(name)}</h2><span>${label} · last ${Math.min(games.length,10)}</span></div>${games.length?`<div class="recent-list">${games.slice(0,10).map(x=>`<div class="recent-row"><span class="result-dot ${x.result==="W"?"win":x.result==="L"?"loss":"push"}">${esc(x.result||"—")}</span><div><b>${esc(x.opponent||"Opponent")}</b><small>${esc(x.homeAway||"")} · ${esc(x.date||"")}</small></div><strong>${esc(x.score||"—")}</strong><span>${x.margin!=null?(Number(x.margin)>0?`+${x.margin}`:x.margin):"—"}</span></div>`).join("")}</div>`:`<div class="empty">Recent-game data is not available from the free team schedule endpoint.</div>`}</section>`;
+}
+
+function detailStandings(g,d){
+  const a=d.standings?.away||{},h=d.standings?.home||{};
+  return `<section class="card"><div class="section-head"><h2>Standings</h2><span>${esc(g.league||g.sport)}</span></div><div class="comparison-table"><div class="compare-head"><span>Field</span><b>${esc(g.away)}</b><b>${esc(g.home)}</b></div>
+    ${comparisonMini("Division / Conference",a.group,h.group)}${comparisonMini("Rank",a.rank,h.rank)}${comparisonMini("Record",a.record,h.record)}${comparisonMini("Games Behind",a.gamesBehind,h.gamesBehind)}${comparisonMini("Streak",a.streak,h.streak)}</div>
+    <div class="notice" style="margin-top:14px">Standings are displayed only when the league/team feed returns them.</div>
+  </section>`;
+}
+
+function detailPlayers(g,d){
+  return `<div class="grid two">${playerCard(g.away,d.awayPlayers||[],d.awayInjuries||[])}${playerCard(g.home,d.homePlayers||[],d.homeInjuries||[])}</div>`;
+}
+function playerCard(team,players,injuries){
+  return `<section class="card"><div class="section-head"><h2>${esc(team)}</h2><span>Players</span></div>${players.length?`<div class="player-list">${players.slice(0,12).map(p=>`<div class="player-row"><div><b>${esc(p.name)}</b><small>${esc(p.position||"")} ${p.status?`· ${esc(p.status)}`:""}</small></div><div class="player-stats">${(p.stats||[]).map(s=>`<span>${esc(s.label)} <b>${esc(s.value)}</b></span>`).join("")}</div></div>`).join("")}`:`<div class="empty">No player stats were returned by the free event feed.</div>`}${injuries.length?`<div class="injury-block"><h3>Available status / injuries</h3>${injuries.map(i=>`<div class="kpi"><span>${esc(i.name)}</span><b>${esc(i.status||i.detail||"Status available")}</b></div>`).join("")}</div>`:""}</section>`;
+}
+
+function detailScoring(g,d){
+  const a=d.away||{},h=d.home||{};
+  return `<section class="card"><div class="section-head"><h2>Scoring Profile</h2><span>Available team metrics</span></div><div class="comparison-table"><div class="compare-head"><span>Metric</span><b>${esc(g.away)}</b><b>${esc(g.home)}</b></div>${comparisonMini("Season average",a.ppg,h.ppg)}${comparisonMini("Recent average",a.recentPpg,h.recentPpg)}${comparisonMini("Home average",a.homePpg,h.homePpg)}${comparisonMini("Away average",a.awayPpg,h.awayPpg)}${comparisonMini("Opponent average",a.oppPpg,h.oppPpg)}</div><div class="notice" style="margin-top:14px">The terminal does not manufacture season/recent splits. If ESPN does not provide a split, it remains unavailable.</div></section>`;
 }
 
 function detailWeather(g,d){
   const w=d.weather||g.weather;
   if(w) return `<section class="card"><div class="section-head"><h2>Weather</h2><span>event feed</span></div><div class="weather-grid">${infoRow("Condition",w.displayValue||w.condition||"—")}${infoRow("Temperature",w.temperature!=null?`${w.temperature}°`:"—")}${infoRow("Wind",w.windSpeed?`${w.windSpeed} mph`:"—")}${infoRow("Source","ESPN event data")}</div></section>`;
-  return `<section class="card"><div class="empty">No weather object was returned for this event. V6 does not fabricate conditions. Open-Meteo fallback is available when a venue city can be resolved.</div></section>`;
+  return `<section class="card"><div class="empty">No weather data was returned for this event. Weather is only shown when a real source provides it.</div></section>`;
 }
 
 function detailBets(g){
@@ -402,8 +445,9 @@ function snapshotsPage(){
 
 function settingsPage(){
   return `<div class="page-title"><div><div class="eyebrow">SYSTEM</div><h1>Settings</h1><p>Free deployment and data-source status.</p></div></div>
-  <section class="card"><h2>Shared database</h2>${infoRow("Supabase URL configured",cfg.SUPABASE_URL?"YES":"NO")}${infoRow("Realtime",state.live?"CONNECTED":"NOT CONNECTED")}${infoRow("Room",cfg.ROOM_CODE||"FRIENDS-1")}
-  <div class="notice">Keep your existing working <b>config.js</b>. V6 does not require replacing it. Only the public Supabase anon key belongs in the browser.</div></section>
+  <section class="card"><h2>Shared database</h2>${infoRow("Supabase URL configured",cfg.SUPABASE_URL?"YES":"NO")}${infoRow("Database read/write",state.dbConnected?"CONNECTED":"NOT CONNECTED")}${infoRow("Realtime",state.live?"CONNECTED":"NOT CONNECTED")}${infoRow("Room",cfg.ROOM_CODE||"FRIENDS-1")}${infoRow("Database check",state.dbCheckedAt?state.dbCheckedAt.toLocaleTimeString():"NOT CHECKED")}
+  <div class="notice">Keep your existing working <b>config.js</b>. V7 does not change it. Realtime and database permissions are checked separately.</div></section>
+  <section class="card" style="margin-top:14px"><h2>Database permission diagnostic</h2>${state.dbError?`<div class="notice neg-text">${esc(state.dbError)}</div>`:`<div class="notice">Database access is currently allowed for this browser.</div>`}<button class="ghost" id="testDatabase">↻ Test database read</button></section>
   <section class="card" style="margin-top:14px"><h2>Free data stack</h2>${infoRow("Scores / schedules","ESPN public scoreboard")}${infoRow("Event details","ESPN summary endpoint")}${infoRow("Weather","ESPN event weather when supplied")}${infoRow("Fallback weather","Open-Meteo")}${infoRow("Database","Supabase free tier")}${infoRow("Hosting","GitHub Pages")}</section>
   <section class="card" style="margin-top:14px"><h2>Data limitations</h2><div class="notice">There is no honest promise of unlimited free sportsbook odds. V6 uses market data only when the free event feed actually returns it. Missing odds are shown as missing instead of being guessed.</div></section>`;
 }
@@ -419,6 +463,7 @@ function bindPage(){
   $("#refreshDashboard")?.addEventListener("click",refreshAll);
   $("#refreshGames")?.addEventListener("click",loadGames);
   $("#refreshSnapshots")?.addEventListener("click",async()=>{await loadModelHistory();render();});
+  $("#testDatabase")?.addEventListener("click",testDatabase);
   $("#backGames")?.addEventListener("click",()=>{state.selectedGame=null;state.page="games";render();});
   $("#betThisGame")?.addEventListener("click",()=>{
     const g=state.selectedGame; openBet();
@@ -447,13 +492,12 @@ function bindPage(){
 }
 
 async function switchDetail(tab){
-  const g=state.selectedGame, d=state.gameData[g.id]||{};
+  state.detailTab=tab;
+  const g=state.selectedGame;
+  if(!g) return;
+  const d=state.gameData[g.id]||{};
   document.querySelectorAll(".detail-tab").forEach(x=>x.classList.toggle("active",x.dataset.detail===tab));
-  if(tab==="overview") $("#detailContent").innerHTML=detailOverview(g,modelForGame(g),bestMarket(g),d);
-  if(tab==="market") $("#detailContent").innerHTML=detailMarket(g);
-  if(tab==="stats") $("#detailContent").innerHTML=detailStats(g,d);
-  if(tab==="weather") $("#detailContent").innerHTML=detailWeather(g,d);
-  if(tab==="bets") $("#detailContent").innerHTML=detailBets(g);
+  $("#detailContent").innerHTML=detailTabContent(g,d,tab);
 }
 
 function filterBets(){
@@ -468,37 +512,85 @@ function populateSports(){ $("#betSport").innerHTML=SPORTS.map(x=>`<option>${x[0
 
 async function addBet(e){
   e.preventDefault();
-  const b={id:uid(),room_code:cfg.ROOM_CODE||"FRIENDS-1",bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
-  state.bets.push(b); saveLocal(); closeBet(); render();
-  if(state.supabase){
-    const {error}=await state.supabase.from("bets").upsert(b);
-    if(error) console.warn("Supabase insert failed",error);
+  if(!state.supabase || !state.dbConnected){
+    alert(`Shared database is not writable.\n\n${state.dbError || "Supabase database access is unavailable."}\n\nNo local-only bet was created.`);
+    return;
   }
+  const b={id:uid(),room_code:cfg.ROOM_CODE||"FRIENDS-1",bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
+  const {data,error}=await state.supabase.from("bets").insert(b).select().single();
+  if(error){
+    state.dbConnected=false; state.dbError=databaseErrorText(error); state.dbCheckedAt=new Date(); updateStatus(); render();
+    alert(`Bet was NOT saved.\n\n${state.dbError}`);
+    return;
+  }
+  if(data && !state.bets.some(x=>x.id===data.id)) state.bets.push(data);
+  saveLocal(); closeBet(); render();
 }
 
+function databaseErrorText(error){
+  const msg=String(error?.message||error||"Unknown database error");
+  const lower=msg.toLowerCase();
+  if(lower.includes("permission denied") || lower.includes("row-level security") || lower.includes("rls")) return `Supabase reached the bets table, but the current anon key is blocked by Row Level Security on public.bets. Realtime can still be connected separately. The database policy must allow the current role to read/write this room.`;
+  if(lower.includes("relation") && lower.includes("does not exist")) return `Supabase is reachable, but public.bets does not exist in this database.`;
+  return msg;
+}
+
+async function testDatabase(){
+  if(!state.supabase){ state.dbConnected=false; state.dbError="Supabase client is not configured."; render(); return false; }
+  state.dbCheckedAt=new Date();
+  const room=cfg.ROOM_CODE||"FRIENDS-1";
+  const {data,error}=await state.supabase.from("bets").select("id,room_code,created_at").eq("room_code",room).limit(1);
+  if(error){
+    state.dbConnected=false; state.dbError=databaseErrorText(error);
+    updateStatus(); render(); return false;
+  }
+  state.dbConnected=true; state.dbError="";
+  if(Array.isArray(data)){ state.bets=state.bets.length?state.bets:data; }
+  updateStatus(); render();
+  return true;
+}
+
+
 async function initSupabase(){
-  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){ updateStatus(); return; }
+  state.dbConnected=false; state.dbError="";
+  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){
+    state.dbError="Supabase URL, public key, or Supabase JS client is missing.";
+    updateStatus(); return;
+  }
   try{
     state.supabase=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
-    const {data,error}=await state.supabase.from("bets").select("*").eq("room_code",cfg.ROOM_CODE||"FRIENDS-1").order("created_at",{ascending:true});
-    if(!error&&data){state.bets=data;saveLocal();render();}
+    const room=cfg.ROOM_CODE||"FRIENDS-1";
+    const {data,error}=await state.supabase.from("bets").select("*").eq("room_code",room).order("created_at",{ascending:true});
+    state.dbCheckedAt=new Date();
+    if(error){
+      state.dbConnected=false; state.dbError=databaseErrorText(error);
+      console.warn("Supabase bets read failed",error);
+    } else {
+      state.dbConnected=true; state.dbError="";
+      state.bets=data||[]; saveLocal();
+    }
     await loadModelHistory();
-    const channel=state.supabase.channel("bets-live-v6")
-      .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${cfg.ROOM_CODE||"FRIENDS-1"}`},payload=>{
+    const channel=state.supabase.channel("bets-live-v7")
+      .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${room}`},payload=>{
         if(payload.eventType==="INSERT"&&!state.bets.some(x=>x.id===payload.new.id))state.bets.push(payload.new);
         if(payload.eventType==="UPDATE"){const i=state.bets.findIndex(x=>x.id===payload.new.id);if(i>=0)state.bets[i]=payload.new;}
         if(payload.eventType==="DELETE")state.bets=state.bets.filter(x=>x.id!==payload.old.id);
-        saveLocal();render();
+        saveLocal(); render();
       });
     channel.subscribe(s=>{state.live=s==="SUBSCRIBED";updateStatus();});
-  }catch(e){console.warn("Supabase init failed",e);state.live=false;updateStatus();}
+    render();
+  }catch(e){
+    console.warn("Supabase init failed",e); state.dbConnected=false; state.dbError=databaseErrorText(e); state.live=false; updateStatus(); render();
+  }
 }
 
 function updateStatus(){
-  $("#connectionDot")?.classList.toggle("online",state.live);
-  $("#connectionDot")?.classList.toggle("offline",!state.live);
-  if($("#connectionText"))$("#connectionText").textContent=state.live?"Shared live":"Local fallback";
+  const connected=state.dbConnected;
+  $("#connectionDot")?.classList.toggle("online",connected);
+  $("#connectionDot")?.classList.toggle("offline",!connected);
+  if($("#connectionText"))$("#connectionText").textContent=connected?"Database live":(state.live?"Realtime only":"Not connected");
 }
+
 
 async function espn(url){
   const r=await fetch(url,{cache:"no-store"});
@@ -560,19 +652,80 @@ async function loadGames(){
 }
 
 async function loadGameDetails(g){
-  if(!g||state.gameData[g.id]?.loaded)return;
-  const d={loaded:true};
+  if(!g)return;
+  const d=state.gameData[g.id]||{loaded:false};
+  if(d.loading)return;
+  d.loading=true; d.updatedAt=new Date(); state.gameData[g.id]=d;
   try{
-    const summary=await espn(`https://site.api.espn.com/apis/site/v2/sports/${SPORTS.find(x=>x[0]===g.sport)?.[1]||"football"}/${SPORTS.find(x=>x[0]===g.sport)?.[2]||"nfl"}/summary?event=${encodeURIComponent(g.sourceId)}`);
-    d.raw=summary; d.competitors=summary.boxscore?.teams||summary.competitions?.[0]?.competitors||[];
+    const cfgSport=SPORTS.find(x=>x[0]===g.sport)||[g.sport,"football","nfl"];
+    const base=`https://site.api.espn.com/apis/site/v2/sports/${cfgSport[1]}/${cfgSport[2]}`;
+    const summary=await espn(`${base}/summary?event=${encodeURIComponent(g.sourceId)}`);
+    d.raw=summary;
     const c=summary.header?.competitions?.[0]||summary.competitions?.[0];
     d.venue=c?.venue?.fullName||c?.venue?.displayName||g.venue;
     d.attendance=c?.attendance;
     d.broadcasts=(c?.broadcasts||[]).map(x=>x.names?.[0]||x.shortName).filter(Boolean);
     d.weather=c?.weather||summary.weather||g.weather;
-    state.gameData[g.id]=d;
-  }catch(e){d.error=e.message;state.gameData[g.id]=d;}
+    const comps=summary.boxscore?.teams||summary.competitions?.[0]?.competitors||[];
+    d.competitors=comps;
+    const findComp=id=>comps.find(x=>String(x.team?.id||x.id)===String(id));
+    const awayC=findComp(g.awayId)||comps.find(x=>x.homeAway==="away");
+    const homeC=findComp(g.homeId)||comps.find(x=>x.homeAway==="home");
+    d.away=extractTeamMetrics(awayC,g.away,"away");
+    d.home=extractTeamMetrics(homeC,g.home,"home");
+    const leaders=summary.leaders||[];
+    d.awayPlayers=extractPlayers(summary, g.awayId, awayC);
+    d.homePlayers=extractPlayers(summary, g.homeId, homeC);
+    d.awayInjuries=extractInjuries(summary,g.awayId);
+    d.homeInjuries=extractInjuries(summary,g.homeId);
+    const teamIds=[g.awayId,g.homeId].filter(Boolean);
+    const schedules=await Promise.all(teamIds.map(id=>loadTeamSchedule(base,id)));
+    d.awayRecent=recentFromSchedule(schedules[0],g.awayId).slice(0,10);
+    d.homeRecent=recentFromSchedule(schedules[teamIds.indexOf(g.homeId)]||[],g.homeId).slice(0,10);
+    const standings=await loadStandings(base);
+    d.standings={away:standingForTeam(standings,g.awayId),home:standingForTeam(standings,g.homeId)};
+    d.loaded=true; d.loading=false; d.updatedAt=new Date(); state.gameData[g.id]=d;
+  }catch(e){d.error=e.message;d.loading=false;d.loaded=true;state.gameData[g.id]=d;console.warn("Game detail load failed",e);}
   if(state.page==="game-detail")render();
+}
+
+function extractTeamMetrics(comp,name,location){
+  const out={record:null,ppg:null,oppPpg:null,fg:null,three:null,rpg:null,apg:null,recent5:null,location:location==="home"?"Home":"Away",recentPpg:null,homePpg:null,awayPpg:null};
+  if(!comp)return out;
+  const team=comp.team||{};
+  const rec=team.record?.summary||team.record?.items?.[0]?.summary||comp.record?.summary||comp.records?.[0]?.summary;
+  out.record=rec||null;
+  const stats=[...(comp.statistics||[]),...(team.statistics||[])];
+  const val=(names)=>{const x=stats.find(s=>names.includes(String(s.name||s.label||s.abbreviation).toLowerCase()));return x?.displayValue??x?.value??null;};
+  out.ppg=val(["points per game","ppg"]); out.fg=val(["field goal percentage","fg%","fg pct"]); out.three=val(["three point field goal percentage","3p%","3pt%","3p pct"]); out.rpg=val(["rebounds per game","rpg"]); out.apg=val(["assists per game","apg"]);
+  out.oppPpg=val(["opponent points per game","opp ppg"]);
+  out.recent5=team.recentForm||comp.recentForm||null;
+  out.recentPpg=val(["recent points per game","last 5 ppg"]);
+  out.homePpg=val(["home points per game","home ppg"]); out.awayPpg=val(["away points per game","away ppg"]);
+  return out;
+}
+
+function extractPlayers(summary,teamId,comp){
+  const out=[];
+  const add=(x)=>{if(!x)return;const team=x.team||x.athlete?.team;if(teamId&&team?.id&&String(team.id)!==String(teamId))return;const athlete=x.athlete||x.player||x;const name=athlete.displayName||athlete.fullName||x.name;if(!name)return;const stats=(x.statistics||x.stats||[]).slice(0,5).map(s=>({label:s.label||s.name||s.abbreviation||"Stat",value:s.displayValue??s.value}));out.push({name,position:athlete.position?.abbreviation||athlete.position?.displayName||x.position?.abbreviation||"",status:x.status?.type?.description||x.status,stats});};
+  (summary.leaders||[]).forEach(group=>(group.leaders||[]).forEach(add));
+  (comp?.leaders||[]).forEach(add); (summary.boxscore?.players||[]).forEach(group=>{if(!teamId||String(group.team?.id)===String(teamId))(group.statistics||[]).forEach(add)});
+  const seen=new Set(); return out.filter(p=>!seen.has(p.name)&&seen.add(p.name));
+}
+function extractInjuries(summary,teamId){
+  const out=[]; const arr=summary.injuries||summary.rosters?.injuries||[];
+  for(const x of arr){const team=x.team||x.athlete?.team;if(teamId&&team?.id&&String(team.id)!==String(teamId))continue;const a=x.athlete||x.player||{};out.push({name:a.displayName||a.fullName||x.name||"Player",status:x.status||x.type?.description,detail:x.details||x.longComment});} return out;
+}
+async function loadTeamSchedule(base,teamId){
+  try{const d=await espn(`${base}/teams/${encodeURIComponent(teamId)}/schedule?limit=10`);return d.events||d.items||[];}catch(e){return [];}
+}
+function recentFromSchedule(events,teamId){
+  return (events||[]).filter(e=>{const st=e.status?.type?.state||e.competitions?.[0]?.status?.type?.state;return st==="post"||e.status?.type?.completed||e.competitions?.[0]?.status?.type?.completed}).map(e=>{
+    const c=e.competitions?.[0], comps=c?.competitors||[];const me=comps.find(x=>String(x.team?.id)===String(teamId));const opp=comps.find(x=>String(x.team?.id)!==String(teamId));if(!me||!opp)return null;const ms=Number(me.score),os=Number(opp.score);return {result:ms>os?"W":ms<os?"L":"P",opponent:opp.team?.displayName||opp.team?.abbreviation||"Opponent",homeAway:me.homeAway==="home"?"Home":"Away",date:formatDate(e.date),score:`${me.score}-${opp.score}`,margin:ms-os};}).filter(Boolean);
+}
+async function loadStandings(base){try{const d=await espn(`${base}/standings`);return d.standings||d.children?.flatMap(x=>x.standings||[])||[];}catch(e){return [];}}
+function standingForTeam(groups,teamId){
+  for(const g of groups||[]){for(const e of (g.entries||g.team?.entries||[])){const id=e.team?.id||e.id;if(String(id)!==String(teamId))continue;const stats=e.stats||[];const get=(names)=>{const x=stats.find(s=>names.includes(String(s.name||s.abbreviation).toLowerCase()));return x?.displayValue??x?.value??null;};return {group:e.team?.conference?.displayName||e.team?.division?.displayName||g.name||null,rank:get(["rank","playoffseed"]),record:get(["overall","wins-losses","record"]),gamesBehind:get(["gamesbehind","games behind"]),streak:get(["streak"])}}}return {};
 }
 
 async function refreshAll(){ await loadGames(); }
