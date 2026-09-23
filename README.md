@@ -1,31 +1,52 @@
-# Betting Terminal V7
+# Betting Terminal V6 — Live Shared Sports Terminal
 
-V7 builds directly on the connected V6 terminal. It keeps the existing Supabase connection and database schema intact.
+V6 is built directly from the working V5 foundation. It keeps the existing Supabase connection and does **not** include or replace `config.js` or `supabase.sql`.
 
 ## ZIP contents
-- `README.md`
-- `app.js`
+
 - `index.html`
+- `app.js`
 - `styles.css`
+- `README.md`
 
-## Do not replace
-Keep your existing working `config.js` exactly as it is. Do not replace or rerun `supabase.sql` for V7.
+## Important connection rule
 
-## V7 upgrades
-- Keeps the live shared Supabase bet ledger.
-- Keeps ESPN live schedules, scores, event details and real market data when ESPN supplies it.
-- Adds stronger database connection health reporting separate from Realtime status.
-- Automatically settles logged home/away predictions from final ESPN scores when the prediction selection matches a team.
-- Adds model accuracy and Brier-score tracking from settled predictions.
-- Adds probability calibration buckets so the model can be evaluated as real prediction history accumulates.
-- Keeps real-data-only behavior: missing odds/stats/weather are shown as unavailable rather than fabricated.
-- Keeps game snapshots and prediction history in the existing V5/V6 tables.
+Keep your existing working `config.js` in the GitHub repository. The V6 app reads `window.BT_CONFIG` from that file and does not replace it. Your existing config uses the Supabase project URL and public publishable/anon key. fileciteturn0file5L6-L10
 
-## Install
-1. Extract this ZIP.
-2. Replace only `README.md`, `app.js`, `index.html`, and `styles.css` in GitHub.
-3. Leave the existing `config.js` untouched.
-4. Leave the existing Supabase SQL/schema untouched.
-5. Reload GitHub Pages and use **Refresh All**.
+V6 does not use local storage as the shared database. Local storage is only a temporary browser cache. Shared bets continue to use Supabase, and V6 adds shared game snapshots and prediction history.
 
-V7 does not use a local database. LocalStorage is only a browser cache; shared bets, snapshots, and predictions use Supabase when the database connection is healthy.
+## V6 upgrades
+
+- Keeps the V5 live ESPN scoreboard and game-terminal structure.
+- Keeps shared Supabase bets and three-bettor workflow.
+- Adds automatic game snapshots after refresh.
+- Adds prediction logging with model version, probability, odds, implied probability and edge.
+- Adds a Snapshots page for stored game-state history.
+- Adds prediction-history and basic accuracy metrics.
+- Uses real returned ESPN fields only; it does not fabricate missing odds or stats.
+- Keeps the existing config and database connection contract unchanged.
+
+## Database
+
+V6 expects the additive V5 tables `game_snapshots` and `prediction_results` to exist. The supplied V5 SQL already defines those tables and their policies. fileciteturn0file4L5-L18 fileciteturn0file4L24-L38
+
+If those tables are already installed from V5, **do not replace your existing SQL just to install this V6 front end**.
+
+If they are not installed, run the existing additive V5 SQL once in Supabase. Do not replace your working core schema.
+
+## Deploy
+
+1. Back up V5.
+2. Replace only `app.js`, `index.html`, `styles.css`, and `README.md`.
+3. Keep the existing `config.js`.
+4. Keep the existing `supabase.sql`.
+5. Commit/push to GitHub.
+6. Hard refresh with `Ctrl + Shift + R`.
+
+The V5 project already identifies `config.js` as an existing file that should not be replaced. fileciteturn0file2L42-L47
+
+## V6 model philosophy
+
+V6 does not claim to be a trained predictive model yet. It creates the data pipeline needed to evaluate one: real game inputs → snapshots → explicit predictions → logged outcomes → calibration/backtesting later.
+
+Missing free-feed data remains visibly missing instead of being guessed.
