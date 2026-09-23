@@ -2,7 +2,7 @@
 "use strict";
 
 const cfg = window.BT_CONFIG || {};
-const KEY = "bt_local_bets_v6";
+const KEY = "bt_local_bets_v7";
 const REFRESH = Number(cfg.ESPN_REFRESH_MS) || 60000;
 
 const state = {
@@ -14,6 +14,9 @@ const state = {
   snapshots: [],
   predictions: [],
   supabase: null,
+  dbConnected: false,
+  dbError: "",
+  dbCheckedAt: null,
   live: false,
   loading: false,
   lastRefresh: null,
@@ -186,7 +189,7 @@ function dashboard(){
     <section class="card"><div class="section-head"><h2>Recent Bets</h2><button class="ghost" data-go="bets">View all</button></div>${betTable(state.bets.slice().reverse().slice(0,8))}</section>
     <section class="card">
       <div class="section-head"><h2>Terminal Status</h2><span>${state.lastRefresh?state.lastRefresh.toLocaleTimeString():"—"}</span></div>
-      <div class="kpi"><span>Shared Supabase</span><b>${state.live?"CONNECTED":"NOT CONNECTED"}</b></div>
+      <div class="kpi"><span>Shared Supabase</span><b>${state.dbConnected?"CONNECTED":(state.live?"REALTIME ONLY":"NOT CONNECTED")}</b></div>
       <div class="kpi"><span>Score source</span><b>ESPN public feed</b></div>
       <div class="kpi"><span>Market source</span><b>ESPN event odds when supplied</b></div>
       <div class="kpi"><span>Weather</span><b>ESPN / Open-Meteo</b></div>
@@ -402,8 +405,9 @@ function snapshotsPage(){
 
 function settingsPage(){
   return `<div class="page-title"><div><div class="eyebrow">SYSTEM</div><h1>Settings</h1><p>Free deployment and data-source status.</p></div></div>
-  <section class="card"><h2>Shared database</h2>${infoRow("Supabase URL configured",cfg.SUPABASE_URL?"YES":"NO")}${infoRow("Realtime",state.live?"CONNECTED":"NOT CONNECTED")}${infoRow("Room",cfg.ROOM_CODE||"FRIENDS-1")}
-  <div class="notice">Keep your existing working <b>config.js</b>. V6 does not require replacing it. Only the public Supabase anon key belongs in the browser.</div></section>
+  <section class="card"><h2>Shared database</h2>${infoRow("Supabase URL configured",cfg.SUPABASE_URL?"YES":"NO")}${infoRow("Database read/write",state.dbConnected?"CONNECTED":"NOT CONNECTED")}${infoRow("Realtime",state.live?"CONNECTED":"NOT CONNECTED")}${infoRow("Room",cfg.ROOM_CODE||"FRIENDS-1")}${infoRow("Database check",state.dbCheckedAt?state.dbCheckedAt.toLocaleTimeString():"NOT CHECKED")}
+  <div class="notice">Keep your existing working <b>config.js</b>. V7 does not change it. Realtime and database permissions are checked separately.</div></section>
+  <section class="card" style="margin-top:14px"><h2>Database permission diagnostic</h2>${state.dbError?`<div class="notice neg-text">${esc(state.dbError)}</div>`:`<div class="notice">Database access is currently allowed for this browser.</div>`}<button class="ghost" id="testDatabase">↻ Test database read</button></section>
   <section class="card" style="margin-top:14px"><h2>Free data stack</h2>${infoRow("Scores / schedules","ESPN public scoreboard")}${infoRow("Event details","ESPN summary endpoint")}${infoRow("Weather","ESPN event weather when supplied")}${infoRow("Fallback weather","Open-Meteo")}${infoRow("Database","Supabase free tier")}${infoRow("Hosting","GitHub Pages")}</section>
   <section class="card" style="margin-top:14px"><h2>Data limitations</h2><div class="notice">There is no honest promise of unlimited free sportsbook odds. V6 uses market data only when the free event feed actually returns it. Missing odds are shown as missing instead of being guessed.</div></section>`;
 }
@@ -419,6 +423,7 @@ function bindPage(){
   $("#refreshDashboard")?.addEventListener("click",refreshAll);
   $("#refreshGames")?.addEventListener("click",loadGames);
   $("#refreshSnapshots")?.addEventListener("click",async()=>{await loadModelHistory();render();});
+  $("#testDatabase")?.addEventListener("click",testDatabase);
   $("#backGames")?.addEventListener("click",()=>{state.selectedGame=null;state.page="games";render();});
   $("#betThisGame")?.addEventListener("click",()=>{
     const g=state.selectedGame; openBet();
@@ -468,37 +473,85 @@ function populateSports(){ $("#betSport").innerHTML=SPORTS.map(x=>`<option>${x[0
 
 async function addBet(e){
   e.preventDefault();
-  const b={id:uid(),room_code:cfg.ROOM_CODE||"FRIENDS-1",bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
-  state.bets.push(b); saveLocal(); closeBet(); render();
-  if(state.supabase){
-    const {error}=await state.supabase.from("bets").upsert(b);
-    if(error) console.warn("Supabase insert failed",error);
+  if(!state.supabase || !state.dbConnected){
+    alert(`Shared database is not writable.\n\n${state.dbError || "Supabase database access is unavailable."}\n\nNo local-only bet was created.`);
+    return;
   }
+  const b={id:uid(),room_code:cfg.ROOM_CODE||"FRIENDS-1",bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
+  const {data,error}=await state.supabase.from("bets").insert(b).select().single();
+  if(error){
+    state.dbConnected=false; state.dbError=databaseErrorText(error); state.dbCheckedAt=new Date(); updateStatus(); render();
+    alert(`Bet was NOT saved.\n\n${state.dbError}`);
+    return;
+  }
+  if(data && !state.bets.some(x=>x.id===data.id)) state.bets.push(data);
+  saveLocal(); closeBet(); render();
 }
 
+function databaseErrorText(error){
+  const msg=String(error?.message||error||"Unknown database error");
+  const lower=msg.toLowerCase();
+  if(lower.includes("permission denied") || lower.includes("row-level security") || lower.includes("rls")) return `Supabase reached the bets table, but the current anon key is blocked by Row Level Security on public.bets. Realtime can still be connected separately. The database policy must allow the current role to read/write this room.`;
+  if(lower.includes("relation") && lower.includes("does not exist")) return `Supabase is reachable, but public.bets does not exist in this database.`;
+  return msg;
+}
+
+async function testDatabase(){
+  if(!state.supabase){ state.dbConnected=false; state.dbError="Supabase client is not configured."; render(); return false; }
+  state.dbCheckedAt=new Date();
+  const room=cfg.ROOM_CODE||"FRIENDS-1";
+  const {data,error}=await state.supabase.from("bets").select("id,room_code,created_at").eq("room_code",room).limit(1);
+  if(error){
+    state.dbConnected=false; state.dbError=databaseErrorText(error);
+    updateStatus(); render(); return false;
+  }
+  state.dbConnected=true; state.dbError="";
+  if(Array.isArray(data)){ state.bets=state.bets.length?state.bets:data; }
+  updateStatus(); render();
+  return true;
+}
+
+
 async function initSupabase(){
-  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){ updateStatus(); return; }
+  state.dbConnected=false; state.dbError="";
+  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){
+    state.dbError="Supabase URL, public key, or Supabase JS client is missing.";
+    updateStatus(); return;
+  }
   try{
     state.supabase=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
-    const {data,error}=await state.supabase.from("bets").select("*").eq("room_code",cfg.ROOM_CODE||"FRIENDS-1").order("created_at",{ascending:true});
-    if(!error&&data){state.bets=data;saveLocal();render();}
+    const room=cfg.ROOM_CODE||"FRIENDS-1";
+    const {data,error}=await state.supabase.from("bets").select("*").eq("room_code",room).order("created_at",{ascending:true});
+    state.dbCheckedAt=new Date();
+    if(error){
+      state.dbConnected=false; state.dbError=databaseErrorText(error);
+      console.warn("Supabase bets read failed",error);
+    } else {
+      state.dbConnected=true; state.dbError="";
+      state.bets=data||[]; saveLocal();
+    }
     await loadModelHistory();
-    const channel=state.supabase.channel("bets-live-v6")
-      .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${cfg.ROOM_CODE||"FRIENDS-1"}`},payload=>{
+    const channel=state.supabase.channel("bets-live-v7")
+      .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${room}`},payload=>{
         if(payload.eventType==="INSERT"&&!state.bets.some(x=>x.id===payload.new.id))state.bets.push(payload.new);
         if(payload.eventType==="UPDATE"){const i=state.bets.findIndex(x=>x.id===payload.new.id);if(i>=0)state.bets[i]=payload.new;}
         if(payload.eventType==="DELETE")state.bets=state.bets.filter(x=>x.id!==payload.old.id);
-        saveLocal();render();
+        saveLocal(); render();
       });
     channel.subscribe(s=>{state.live=s==="SUBSCRIBED";updateStatus();});
-  }catch(e){console.warn("Supabase init failed",e);state.live=false;updateStatus();}
+    render();
+  }catch(e){
+    console.warn("Supabase init failed",e); state.dbConnected=false; state.dbError=databaseErrorText(e); state.live=false; updateStatus(); render();
+  }
 }
 
 function updateStatus(){
-  $("#connectionDot")?.classList.toggle("online",state.live);
-  $("#connectionDot")?.classList.toggle("offline",!state.live);
-  if($("#connectionText"))$("#connectionText").textContent=state.live?"Shared live":"Local fallback";
+  const connected=state.dbConnected;
+  $("#connectionDot")?.classList.toggle("online",connected);
+  $("#connectionDot")?.classList.toggle("offline",!connected);
+  if($("#connectionText"))$("#connectionText").textContent=connected?"Database live":(state.live?"Realtime only":"Not connected");
 }
+
 
 async function espn(url){
   const r=await fetch(url,{cache:"no-store"});
