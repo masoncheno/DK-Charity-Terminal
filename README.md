@@ -1,77 +1,121 @@
-# Betting Terminal V5 — Live Shared Terminal
+# Betting Terminal V6 — Database-First Live Terminal
 
-V5 is an additive upgrade from the working V4 foundation.
+V6 is built directly from the working V5 foundation.
 
-## What changed
+## Important: database connection is preserved
 
-- Keeps the shared Supabase bet ledger and three-bettor setup.
-- Keeps the existing `config.js`; **do not replace it**.
-- Upgrades the Games Center with:
-  - live/upcoming/final filters
-  - team search
-  - ESPN event IDs
-  - venue/event information
-  - event market data when ESPN actually supplies it
-- Adds a game terminal with:
-  - Overview
-  - Market
-  - Stats
-  - Weather
-  - Bets
-- Adds a model board using transparent, available inputs instead of fabricated numbers.
-- Adds additive Supabase tables for game snapshots and prediction results.
-- Adds stronger responsive formatting and a more terminal-like layout.
-- Keeps local fallback if Supabase is temporarily unavailable.
+**Do not change or replace your current `config.js`.**  
+**Do not change or replace your current Supabase SQL/schema.**
 
-## Free data approach
+V6 uses the existing Supabase connection and the existing `bets` table. The four files in this package are only:
 
-**Scores/schedules:** ESPN public scoreboard endpoints.
+- `README.md`
+- `app.js`
+- `index.html`
+- `styles.css`
 
-**Game detail:** ESPN public summary endpoint.
+Your existing `config.js` stays in the repository exactly where it already works.
 
-**Market data:** only event odds returned by the ESPN feed. V5 does not claim unlimited free sportsbook odds. If the feed does not return odds, the UI says they are unavailable.
+## What changed in V6
 
-**Weather:** ESPN event weather when available. The next adapter can add Open-Meteo venue geocoding without changing the rest of the app.
+### 1. Database-first shared betting
+- Supabase is now treated as the authoritative source for bets.
+- Bets are not reported as successfully saved until Supabase accepts them.
+- If the database is disconnected, the Add Bet action stops instead of silently creating a local-only bet.
+- Existing Supabase Realtime syncing remains in place for the three-person room.
+- The header now clearly reports **Database live** or **Database offline**.
 
-**Database:** Supabase free tier.
+### 2. Better V5 foundation
+- Keeps the V5 Games Center and ESPN public scoreboard feed.
+- Keeps game detail pages for overview, market, stats, weather and bets.
+- Keeps the transparent Model Lab rather than inventing unsupported predictions.
+- Keeps the existing analytics and betting history.
+- Refreshes the shared bet state after successful database writes.
+- Uses a V6 Realtime channel name so the live listener is separated from V5.
 
-**Hosting:** GitHub Pages.
+### 3. UI polish
+- V6 branding throughout the terminal.
+- Database-first status language instead of the misleading “Local fallback” label.
+- Small sync/status indicators.
+- Better mobile behavior for the command center, cards, tables and navigation.
 
-## Install V5
+## Data sources
 
-1. Back up the current working V4 repository.
-2. Replace `app.js`, `index.html`, `styles.css`, `README.md`, and optionally run the additive `supabase.sql`.
-3. **Keep your current working `config.js` exactly as it is.**
-4. If you run the SQL, run the whole V5 `supabase.sql` in Supabase SQL Editor.
-5. Make sure Realtime remains enabled for `public.bets`.
-6. Commit and let GitHub Pages deploy.
-7. Hard refresh the site (`Ctrl + Shift + R`).
+- Scores and schedules: ESPN public scoreboard endpoints.
+- Game details: ESPN public summary endpoint.
+- Market data: only odds actually returned by the ESPN feed.
+- Shared betting database: your existing Supabase project.
+- Hosting: GitHub Pages.
 
-## Expected config.js
+V6 intentionally does **not** fabricate sportsbook lines, player statistics, injuries, weather, model probabilities, or other data when the free source does not provide them.
 
-```js
-window.BT_CONFIG = {
-  SUPABASE_URL: "https://YOUR-PROJECT.supabase.co/rest/v1/",
-  SUPABASE_ANON_KEY: "YOUR_PUBLIC_ANON_KEY",
-  ROOM_CODE: "FRIENDS-1",
-  ESPN_REFRESH_MS: 60000
-};
-```
+## Install V6
 
-If V4 is already connected, do not change these values.
+1. Back up your current V5 files.
+2. Replace only:
+   - `app.js`
+   - `index.html`
+   - `styles.css`
+   - `README.md`
+3. **Keep your current `config.js`.**
+4. **Keep your current `supabase.sql` and existing database tables.**
+5. Commit/push to GitHub.
+6. Let GitHub Pages deploy.
+7. Hard refresh with `Ctrl + Shift + R`.
 
-## V5 build philosophy
+## V6 roadmap
 
-The terminal should prefer a missing-data message over fake data. A future trained model should only learn from logged predictions and settled outcomes, with model version, sample size, calibration and backtests recorded.
+### Phase 1 — Current V6
+- Stable shared Supabase bet ledger
+- Realtime three-person synchronization
+- ESPN live/upcoming/final games
+- Game terminal
+- Transparent Model Lab
+- Analytics and bankroll tracking
+- Database-first save behavior
 
-## Next build
+### Phase 2 — Game Intelligence
+- Historical team-form cache
+- Sport-specific recent-form metrics
+- Better team/player stat panels
+- Injury/news fields where a free source supports them
+- More complete game-by-game matchup cards
 
-V6 can add:
-- automatic prediction logging per game
-- historical team-form cache
-- sport-specific features
-- player/team stat panels
-- line movement snapshots when a free source supplies them
-- calibration and backtesting dashboards
-- automatic bet settlement
-- PWA/mobile polish
+### Phase 3 — Betting Intelligence
+- Automatic implied probability
+- Model probability vs market probability
+- EV and edge tracking
+- Line/odds snapshots
+- Bet correlation and parlay exposure
+- Automatic game-to-bet linking
+
+### Phase 4 — Learning Model
+- Store every model prediction
+- Store the result after games finish
+- Backtest by sport and market
+- Calibration tracking
+- Separate models/features by sport
+- Confidence based on sample size, not made-up certainty
+
+### Phase 5 — Automation
+- Automatic bet settlement when reliable game results are available
+- Scheduled data refresh
+- Historical database
+- Better alerts
+- Shared dashboard improvements
+- PWA/mobile terminal experience
+
+### Phase 6 — Full Terminal
+The end goal is a shared sports-betting command center combining:
+- live scores
+- schedules
+- available odds
+- game stats
+- team/player information
+- your three-person bet ledger
+- model outputs
+- bankroll/ROI
+- historical performance
+- transparent model learning
+
+The priority is **real data + reliable database synchronization first**, then more advanced modeling.

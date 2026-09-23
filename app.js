@@ -2,7 +2,7 @@
 "use strict";
 
 const cfg = window.BT_CONFIG || {};
-const KEY = "bt_local_bets_v5";
+const KEY = "bt_local_bets_v6";
 const REFRESH = Number(cfg.ESPN_REFRESH_MS) || 60000;
 
 const state = {
@@ -71,8 +71,8 @@ function dashboard(){
   const live=state.games.filter(g=>g.status==="in").length;
 
   return `<div class="page-title">
-    <div><div class="eyebrow">V5 • LIVE TERMINAL</div><h1>Command Center</h1><p>Live games, real feed data, shared bets, market snapshots and transparent model factors.</p></div>
-    <div class="title-actions"><button class="ghost" id="refreshDashboard">↻ Refresh All</button><button class="primary" id="addBetBtn">+ Add Bet</button></div>
+    <div><div class="eyebrow">V6 • LIVE TERMINAL</div><h1>Command Center</h1><p>Live games, real feed data, database-backed shared bets, market snapshots and transparent model factors.</p></div>
+    <div class="title-actions"><button class="ghost" id="refreshDashboard">↻ Refresh All</button><span class="sync-pill">DB-first · ESPN live</span><button class="primary" id="addBetBtn">+ Add Bet</button></div>
   </div>
   <div class="grid stats">
     ${metric("Net P/L",money(profit),profit>=0?"pos":"neg")}
@@ -358,35 +358,76 @@ function populateSports(){ $("#betSport").innerHTML=SPORTS.map(x=>`<option>${x[0
 
 async function addBet(e){
   e.preventDefault();
-  const b={id:uid(),room_code:cfg.ROOM_CODE||"FRIENDS-1",bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
-  state.bets.push(b); saveLocal(); closeBet(); render();
-  if(state.supabase){
-    const {error}=await state.supabase.from("bets").upsert(b);
-    if(error) console.warn("Supabase insert failed",error);
+  if(!state.supabase || !state.live){
+    alert("Shared database is not connected. Connect to Supabase before saving a bet.");
+    return;
   }
+  const b={id:uid(),room_code:cfg.ROOM_CODE||"FRIENDS-1",bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
+  const {data,error}=await state.supabase.from("bets").upsert(b).select().single();
+  if(error){
+    console.error("Supabase insert failed",error);
+    alert("Bet was not saved. Supabase returned: " + error.message);
+    return;
+  }
+  if(data){
+    state.bets=state.bets.filter(x=>x.id!==data.id);
+    state.bets.push(data);
+  } else state.bets.push(b);
+  closeBet(); render();
 }
 
 async function initSupabase(){
-  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){ updateStatus(); return; }
+  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){
+    state.live=false;
+    state.errors=["Supabase configuration is missing."];
+    updateStatus();
+    return;
+  }
   try{
     state.supabase=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
-    const {data,error}=await state.supabase.from("bets").select("*").eq("room_code",cfg.ROOM_CODE||"FRIENDS-1").order("created_at",{ascending:true});
-    if(!error&&data){state.bets=data;saveLocal();render();}
-    const channel=state.supabase.channel("bets-live-v5")
+    const {data,error}=await state.supabase.from("bets")
+      .select("*")
+      .eq("room_code",cfg.ROOM_CODE||"FRIENDS-1")
+      .order("created_at",{ascending:true});
+    if(error) throw error;
+
+    // Supabase is authoritative in V6. Local storage is only a last-resort
+    // display cache and is never written as a successful database save.
+    state.bets=data||[];
+    try{localStorage.setItem(KEY,JSON.stringify(state.bets));}catch{}
+    render();
+
+    const channel=state.supabase.channel("bets-live-v6")
       .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${cfg.ROOM_CODE||"FRIENDS-1"}`},payload=>{
-        if(payload.eventType==="INSERT"&&!state.bets.some(x=>x.id===payload.new.id))state.bets.push(payload.new);
-        if(payload.eventType==="UPDATE"){const i=state.bets.findIndex(x=>x.id===payload.new.id);if(i>=0)state.bets[i]=payload.new;}
+        if(payload.eventType==="INSERT"){
+          state.bets=state.bets.filter(x=>x.id!==payload.new.id);
+          state.bets.push(payload.new);
+        }
+        if(payload.eventType==="UPDATE"){
+          const i=state.bets.findIndex(x=>x.id===payload.new.id);
+          if(i>=0)state.bets[i]=payload.new; else state.bets.push(payload.new);
+        }
         if(payload.eventType==="DELETE")state.bets=state.bets.filter(x=>x.id!==payload.old.id);
-        saveLocal();render();
+        try{localStorage.setItem(KEY,JSON.stringify(state.bets));}catch{}
+        render();
       });
-    channel.subscribe(s=>{state.live=s==="SUBSCRIBED";updateStatus();});
-  }catch(e){console.warn("Supabase init failed",e);state.live=false;updateStatus();}
+    channel.subscribe(s=>{
+      state.live=s==="SUBSCRIBED";
+      updateStatus();
+    });
+  }catch(e){
+    console.error("Supabase init failed",e);
+    state.live=false;
+    state.supabase=null;
+    state.errors=[`Supabase: ${e.message||"connection failed"}`];
+    updateStatus();
+  }
 }
 
 function updateStatus(){
   $("#connectionDot")?.classList.toggle("online",state.live);
   $("#connectionDot")?.classList.toggle("offline",!state.live);
-  if($("#connectionText"))$("#connectionText").textContent=state.live?"Shared live":"Local fallback";
+  if($("#connectionText"))$("#connectionText").textContent=state.live?"Database live":"Database offline";
 }
 
 async function espn(url){
@@ -487,6 +528,6 @@ $("#closeModal")?.addEventListener("click",closeBet);
 $("#cancelBet")?.addEventListener("click",closeBet);
 $("#betForm")?.addEventListener("submit",addBet);
 
-loadLocal(); populateSports(); render(); initSupabase(); loadGames();
+populateSports(); render(); initSupabase(); loadGames();
 setInterval(loadGames,REFRESH);
 })();
