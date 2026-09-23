@@ -2,6 +2,7 @@
 "use strict";
 
 const cfg = window.BT_CONFIG || {};
+const KEY = "bt_local_bets_v5";
 const REFRESH = Number(cfg.ESPN_REFRESH_MS) || 60000;
 
 const state = {
@@ -12,11 +13,7 @@ const state = {
   gameData: {},
   supabase: null,
   live: false,
-  dbReady: false,
-  dbError: "",
   loading: false,
-  lastDbWrite: null,
-  snapshotWriting: false,
   lastRefresh: null,
   errors: [],
   filters: { sport:"", search:"", status:"all" }
@@ -46,18 +43,8 @@ const payout = (stake,odds) => {
 };
 const pnl = b => b.result==="Win" ? payout(b.stake,b.odds) : b.result==="Loss" ? -Number(b.stake) : b.result==="Push" ? 0 : null;
 
-function roomCode(){ return String(cfg.ROOM_CODE || "FRIENDS-1"); }
-function normalizedSupabaseUrl(raw){
-  let u=String(raw||"").trim().replace(/\/$/,"");
-  u=u.replace(/\/rest\/v1$/i,"");
-  return u;
-}
-function requireDatabase(){
-  if(!state.dbReady || !state.supabase){
-    throw new Error(state.dbError || "Shared database is not connected.");
-  }
-}
-function dbStatusText(){ return state.dbReady ? "CONNECTED" : "DATABASE REQUIRED"; }
+function saveLocal(){ localStorage.setItem(KEY, JSON.stringify(state.bets)); }
+function loadLocal(){ try{ state.bets=JSON.parse(localStorage.getItem(KEY)||"[]"); }catch{state.bets=[];} }
 
 function metric(label,value,cl=""){
   return `<div class="card metric"><div class="label">${label}</div><div class="value ${cl}">${value}</div></div>`;
@@ -84,7 +71,7 @@ function dashboard(){
   const live=state.games.filter(g=>g.status==="in").length;
 
   return `<div class="page-title">
-    <div><div class="eyebrow">V6 • LIVE TERMINAL</div><h1>Command Center</h1><p>Live games, real feed data, shared bets, market snapshots and transparent model factors.</p></div>
+    <div><div class="eyebrow">V5 • LIVE TERMINAL</div><h1>Command Center</h1><p>Live games, real feed data, shared bets, market snapshots and transparent model factors.</p></div>
     <div class="title-actions"><button class="ghost" id="refreshDashboard">↻ Refresh All</button><button class="primary" id="addBetBtn">+ Add Bet</button></div>
   </div>
   <div class="grid stats">
@@ -109,11 +96,11 @@ function dashboard(){
     <section class="card"><div class="section-head"><h2>Recent Bets</h2><button class="ghost" data-go="bets">View all</button></div>${betTable(state.bets.slice().reverse().slice(0,8))}</section>
     <section class="card">
       <div class="section-head"><h2>Terminal Status</h2><span>${state.lastRefresh?state.lastRefresh.toLocaleTimeString():"—"}</span></div>
-      <div class="kpi"><span>Shared Supabase</span><b class="${state.dbReady?"pos":"neg"}">${dbStatusText()}</b></div>
+      <div class="kpi"><span>Shared Supabase</span><b>${state.live?"CONNECTED":"LOCAL FALLBACK"}</b></div>
       <div class="kpi"><span>Score source</span><b>ESPN public feed</b></div>
       <div class="kpi"><span>Market source</span><b>ESPN event odds when supplied</b></div>
       <div class="kpi"><span>Weather</span><b>ESPN / Open-Meteo</b></div>
-      <div class="notice">V6 never invents odds, injuries, stats or edges. If a free source does not return a field, the terminal shows “not available” instead.</div>
+      <div class="notice">V5 never invents odds, injuries, stats or edges. If a free source does not return a field, the terminal shows “not available” instead.</div>
     </section>
   </div>`;
 }
@@ -186,7 +173,7 @@ function betsPage(){
 
 function gamesPage(){
   const filtered=filteredGames();
-  return `<div class="page-title"><div><div class="eyebrow">REAL SCOREBOARD FEED</div><h1>Games Center</h1><p>Schedules and scores from ESPN's public scoreboard endpoints. Click a game for the V6 game terminal.</p></div><button class="ghost" id="refreshGames">↻ Refresh</button></div>
+  return `<div class="page-title"><div><div class="eyebrow">REAL SCOREBOARD FEED</div><h1>Games Center</h1><p>Schedules and scores from ESPN's public scoreboard endpoints. Click a game for the V5 game terminal.</p></div><button class="ghost" id="refreshGames">↻ Refresh</button></div>
   <div class="filters"><select id="gameSportFilter"><option value="">All sports</option>${SPORTS.map(x=>`<option ${state.filters.sport===x[0]?"selected":""}>${x[0]}</option>`).join("")}</select>
   <select id="gameStatusFilter"><option value="all">All statuses</option><option value="in">Live</option><option value="pre">Upcoming</option><option value="post">Final</option></select>
   <input id="gameSearch" value="${esc(state.filters.search)}" placeholder="Search team / matchup"></div>
@@ -226,7 +213,7 @@ function detailOverview(g,m,market,d){
       ${infoRow("Broadcast",d.broadcasts?.join(", ")||"Not available")}
       ${infoRow("Attendance",d.attendance??"Not available")}
       ${infoRow("Source event ID",g.sourceId||"—")}
-      <div class="notice">Model probabilities are transparent baseline estimates, not guaranteed forecasts. V6 only displays an edge when a real market price and a model probability are both available.</div>
+      <div class="notice">Model probabilities are transparent baseline estimates, not guaranteed forecasts. V5 only displays an edge when a real market price and a model probability are both available.</div>
     </section>
   </div>`;
 }
@@ -249,7 +236,7 @@ function detailStats(g,d){
 function detailWeather(g,d){
   const w=d.weather||g.weather;
   if(w) return `<section class="card"><div class="section-head"><h2>Weather</h2><span>event feed</span></div><div class="weather-grid">${infoRow("Condition",w.displayValue||w.condition||"—")}${infoRow("Temperature",w.temperature!=null?`${w.temperature}°`:"—")}${infoRow("Wind",w.windSpeed?`${w.windSpeed} mph`:"—")}${infoRow("Source","ESPN event data")}</div></section>`;
-  return `<section class="card"><div class="empty">No weather object was returned for this event. V6 does not fabricate conditions. Open-Meteo fallback is available when a venue city can be resolved.</div></section>`;
+  return `<section class="card"><div class="empty">No weather object was returned for this event. V5 does not fabricate conditions. Open-Meteo fallback is available when a venue city can be resolved.</div></section>`;
 }
 
 function detailBets(g){
@@ -274,7 +261,7 @@ function analyticsPage(){
   <div class="grid two"><section class="card"><div class="section-head"><h2>Performance by sport</h2></div>${bySport.length?bySport.map(s=>analysisRow(s,state.bets.filter(b=>b.sport===s))).join(""):`<div class="empty">No bets yet.</div>`}</section>
   <section class="card"><div class="section-head"><h2>Performance by bettor</h2></div>${byBettor.map(([n,bs])=>analysisRow(n,bs)).join("")}</section></div>
   <section class="card" style="margin-top:14px"><div class="section-head"><h2>Risk snapshot</h2><span>${settled.length} settled</span></div>${riskSnapshot()}</section>
-  <section class="card" style="margin-top:14px"><div class="section-head"><h2>Model data quality</h2></div><div class="notice">Prediction learning is separated from the bet ledger. V6 stores model version, inputs, price and outcome so later versions can be compared by sample size and backtest results.</div></section>`;
+  <section class="card" style="margin-top:14px"><div class="section-head"><h2>Model data quality</h2></div><div class="notice">Prediction learning is separated from the bet ledger. V5 stores model version, inputs, price and outcome so later versions can be compared by sample size and backtest results.</div></section>`;
 }
 
 function analysisRow(name,bs){
@@ -289,7 +276,7 @@ function riskSnapshot(){
 }
 
 function modelPage(){
-  return `<div class="page-title"><div><div class="eyebrow">MODEL LAB</div><h1>Solo Modeler</h1><p>V6 combines real event inputs with transparent probability math. Training comes only after enough logged outcomes exist.</p></div></div>
+  return `<div class="page-title"><div><div class="eyebrow">MODEL LAB</div><h1>Solo Modeler</h1><p>V5 combines real event inputs with transparent probability math. Training comes only after enough logged outcomes exist.</p></div></div>
   <div class="grid two">
     <section class="card"><div class="section-head"><h2>Market calculator</h2><span>live math</span></div>
       <label>American odds<input id="modelOdds" type="number" value="-110"></label>
@@ -297,7 +284,7 @@ function modelPage(){
       <div class="grid two" style="margin-top:16px">${metric("Implied probability",pct(oddsToProb(-110)))}${metric("Edge",pct(50-oddsToProb(-110)))}</div>
       <div id="modelCalcNote" class="notice">Positive edge means the entered probability is above the market's implied probability. It is not proof that a bet will win.</div>
     </section>
-    <section class="card"><div class="section-head"><h2>Model pipeline</h2><span>V6</span></div>
+    <section class="card"><div class="section-head"><h2>Model pipeline</h2><span>V5</span></div>
       ${["ESPN game state","Team record factor","Market price when supplied","Prediction logging","Outcome settlement","Backtest / calibration","Sport-specific features"].map((x,i)=>`<div class="kpi"><span>${x}</span><b class="${i<4?"pos":""}">${i<4?"ACTIVE":"NEXT"}</b></div>`).join("")}
     </section>
   </div>
@@ -317,7 +304,7 @@ function settingsPage(){
   <section class="card"><h2>Shared database</h2>${infoRow("Supabase URL configured",cfg.SUPABASE_URL?"YES":"NO")}${infoRow("Realtime",state.live?"CONNECTED":"NOT CONNECTED")}${infoRow("Room",cfg.ROOM_CODE||"FRIENDS-1")}
   <div class="notice">Keep your existing working <b>config.js</b>. V5 does not require replacing it. Only the public Supabase anon key belongs in the browser.</div></section>
   <section class="card" style="margin-top:14px"><h2>Free data stack</h2>${infoRow("Scores / schedules","ESPN public scoreboard")}${infoRow("Event details","ESPN summary endpoint")}${infoRow("Weather","ESPN event weather when supplied")}${infoRow("Fallback weather","Open-Meteo")}${infoRow("Database","Supabase free tier")}${infoRow("Hosting","GitHub Pages")}</section>
-  <section class="card" style="margin-top:14px"><h2>Data limitations</h2><div class="notice">There is no honest promise of unlimited free sportsbook odds. V6 uses market data only when the free event feed actually returns it. Missing odds are shown as missing instead of being guessed.</div></section>`;
+  <section class="card" style="margin-top:14px"><h2>Data limitations</h2><div class="notice">There is no honest promise of unlimited free sportsbook odds. V5 uses market data only when the free event feed actually returns it. Missing odds are shown as missing instead of being guessed.</div></section>`;
 }
 
 function filteredGames(){
@@ -371,84 +358,35 @@ function populateSports(){ $("#betSport").innerHTML=SPORTS.map(x=>`<option>${x[0
 
 async function addBet(e){
   e.preventDefault();
-  try{
-    requireDatabase();
-    const b={id:uid(),room_code:roomCode(),bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
-    const {data,error}=await state.supabase.from("bets").upsert(b).select().single();
-    if(error) throw error;
-    const saved=data||b;
-    const i=state.bets.findIndex(x=>x.id===saved.id);
-    if(i>=0) state.bets[i]=saved; else state.bets.push(saved);
-    closeBet(); render();
-  }catch(error){
-    console.error("Database save failed",error);
-    state.dbError=`Bet was not saved: ${error.message||error}`;
-    updateStatus();
-    alert(state.dbError);
+  const b={id:uid(),room_code:cfg.ROOM_CODE||"FRIENDS-1",bettor:$("#betBettor").value,sport:$("#betSport").value,game:$("#betGame").value.trim(),bet_type:$("#betType").value,selection:$("#betSelection").value.trim(),odds:Number($("#betOdds").value),stake:Number($("#betStake").value),book:$("#betBook").value.trim(),result:$("#betResult").value,notes:$("#betNotes").value.trim(),created_at:new Date().toISOString()};
+  state.bets.push(b); saveLocal(); closeBet(); render();
+  if(state.supabase){
+    const {error}=await state.supabase.from("bets").upsert(b);
+    if(error) console.warn("Supabase insert failed",error);
   }
 }
 
 async function initSupabase(){
-  state.dbReady=false;
-  state.live=false;
-  state.dbError="";
-  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){
-    state.dbError="Missing Supabase configuration or Supabase client.";
-    updateStatus();
-    return false;
-  }
+  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY||!window.supabase){ updateStatus(); return; }
   try{
-    const projectUrl=normalizedSupabaseUrl(cfg.SUPABASE_URL);
-    state.supabase=window.supabase.createClient(projectUrl,cfg.SUPABASE_ANON_KEY,{
-      auth:{persistSession:false,autoRefreshToken:false}
-    });
-
-    const {data,error}=await state.supabase.from("bets")
-      .select("*")
-      .eq("room_code",roomCode())
-      .order("created_at",{ascending:true});
-    if(error) throw error;
-    state.bets=data||[];
-    state.dbReady=true;
-
-    const channel=state.supabase.channel(`bets-live-v6-${roomCode()}`)
-      .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${roomCode()}`},payload=>{
-        if(payload.eventType==="INSERT"){
-          if(!state.bets.some(x=>x.id===payload.new.id)) state.bets.push(payload.new);
-        }
-        if(payload.eventType==="UPDATE"){
-          const i=state.bets.findIndex(x=>x.id===payload.new.id);
-          if(i>=0) state.bets[i]=payload.new;
-          else state.bets.push(payload.new);
-        }
-        if(payload.eventType==="DELETE"){
-          state.bets=state.bets.filter(x=>x.id!==payload.old.id);
-        }
-        render();
+    state.supabase=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
+    const {data,error}=await state.supabase.from("bets").select("*").eq("room_code",cfg.ROOM_CODE||"FRIENDS-1").order("created_at",{ascending:true});
+    if(!error&&data){state.bets=data;saveLocal();render();}
+    const channel=state.supabase.channel("bets-live-v5")
+      .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${cfg.ROOM_CODE||"FRIENDS-1"}`},payload=>{
+        if(payload.eventType==="INSERT"&&!state.bets.some(x=>x.id===payload.new.id))state.bets.push(payload.new);
+        if(payload.eventType==="UPDATE"){const i=state.bets.findIndex(x=>x.id===payload.new.id);if(i>=0)state.bets[i]=payload.new;}
+        if(payload.eventType==="DELETE")state.bets=state.bets.filter(x=>x.id!==payload.old.id);
+        saveLocal();render();
       });
-    channel.subscribe(s=>{
-      state.live=s==="SUBSCRIBED";
-      updateStatus();
-    });
-
-    updateStatus();
-    return true;
-  }catch(e){
-    console.error("Supabase init failed",e);
-    state.supabase=null;
-    state.dbReady=false;
-    state.live=false;
-    state.dbError=e.message||String(e);
-    updateStatus();
-    return false;
-  }
+    channel.subscribe(s=>{state.live=s==="SUBSCRIBED";updateStatus();});
+  }catch(e){console.warn("Supabase init failed",e);state.live=false;updateStatus();}
 }
 
 function updateStatus(){
-  const dot=$("#connectionDot");
-  dot?.classList.toggle("online",state.live);
-  dot?.classList.toggle("offline",!state.live);
-  if($("#connectionText")) $("#connectionText").textContent=state.live?"DB live":"DB required";
+  $("#connectionDot")?.classList.toggle("online",state.live);
+  $("#connectionDot")?.classList.toggle("offline",!state.live);
+  if($("#connectionText"))$("#connectionText").textContent=state.live?"Shared live":"Local fallback";
 }
 
 async function espn(url){
@@ -473,72 +411,6 @@ function parseOdds(c){
       homeName:home?.team?.displayName,awayName:away?.team?.displayName
     };
   });
-}
-
-async function writeGameSnapshots(games){
-  if(!state.dbReady || !state.supabase || !games.length || state.snapshotWriting) return;
-  state.snapshotWriting=true;
-  try{
-    const rows=games.map(g=>({
-      id:`${roomCode()}-${g.sourceId}-${Date.now()}`,
-      room_code:roomCode(),
-      source:"ESPN",
-      source_game_id:String(g.sourceId),
-      sport:g.sport,
-      matchup:g.name,
-      game_date:g.date||null,
-      status:g.status||null,
-      away_score:g.awayScore==null?null:String(g.awayScore),
-      home_score:g.homeScore==null?null:String(g.homeScore),
-      odds_json:g.odds||[],
-      weather_json:g.weather||null,
-      snapshot_at:new Date().toISOString()
-    }));
-    const {error}=await state.supabase.from("game_snapshots").insert(rows);
-    if(error) throw error;
-    state.lastDbWrite=new Date();
-  }catch(e){
-    console.warn("Game snapshot write failed",e);
-    state.dbError=`Live feed loaded, but database snapshot write failed: ${e.message||e}`;
-    updateStatus();
-  }finally{
-    state.snapshotWriting=false;
-  }
-}
-
-async function writePredictionSnapshots(games){
-  if(!state.dbReady || !state.supabase || !games.length) return;
-  const rows=[];
-  for(const g of games.slice(0,100)){
-    const m=modelForGame(g);
-    const market=bestMarket(g);
-    const candidates=[
-      {selection:g.away,prob:Number(m.awayProb),odds:market?.awayMoneyline},
-      {selection:g.home,prob:Number(m.homeProb),odds:market?.homeMoneyline}
-    ];
-    for(const c of candidates){
-      if(c.odds==null) continue;
-      rows.push({
-        id:`${roomCode()}-${g.sourceId}-${c.selection}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        room_code:roomCode(),
-        prediction_id:`${g.sourceId}-${c.selection}`,
-        source_game_id:String(g.sourceId),
-        sport:g.sport,
-        model_version:"v6-baseline-record",
-        selection:c.selection,
-        probability:c.prob/100,
-        market_odds:Number(c.odds),
-        implied_probability:oddsToProb(c.odds),
-        edge:c.prob/100-oddsToProb(c.odds),
-        predicted_at:new Date().toISOString()
-      });
-    }
-  }
-  if(!rows.length) return;
-  try{
-    const {error}=await state.supabase.from("prediction_results").insert(rows);
-    if(error) throw error;
-  }catch(e){ console.warn("Prediction snapshot write failed",e); }
 }
 
 async function loadGames(){
@@ -572,12 +444,7 @@ async function loadGames(){
     const rank=x=>x.status==="in"?0:x.status==="pre"?1:2;
     return rank(a)-rank(b)||new Date(a.date||0)-new Date(b.date||0);
   });
-  state.errors=errors; state.lastRefresh=new Date(); state.loading=false;
-  if(state.dbReady){
-    await writeGameSnapshots(state.games);
-    await writePredictionSnapshots(state.games);
-  }
-  render();
+  state.errors=errors; state.lastRefresh=new Date(); state.loading=false; render();
 }
 
 async function loadGameDetails(g){
@@ -620,15 +487,6 @@ $("#closeModal")?.addEventListener("click",closeBet);
 $("#cancelBet")?.addEventListener("click",closeBet);
 $("#betForm")?.addEventListener("submit",addBet);
 
-populateSports();
-render();
-(async function boot(){
-  const connected=await initSupabase();
-  if(connected){
-    await loadGames();
-  }else{
-    render();
-  }
-})();
-setInterval(async()=>{ if(state.dbReady) await loadGames(); },REFRESH);
+loadLocal(); populateSports(); render(); initSupabase(); loadGames();
+setInterval(loadGames,REFRESH);
 })();
