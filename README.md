@@ -1,77 +1,52 @@
-# Betting Terminal V5 — Live Shared Terminal
+# Betting Terminal V6 — Live Shared Sports Terminal
 
-V5 is an additive upgrade from the working V4 foundation.
+V6 is built directly from the working V5 foundation. It keeps the existing Supabase connection and does **not** include or replace `config.js` or `supabase.sql`.
 
-## What changed
+## ZIP contents
 
-- Keeps the shared Supabase bet ledger and three-bettor setup.
-- Keeps the existing `config.js`; **do not replace it**.
-- Upgrades the Games Center with:
-  - live/upcoming/final filters
-  - team search
-  - ESPN event IDs
-  - venue/event information
-  - event market data when ESPN actually supplies it
-- Adds a game terminal with:
-  - Overview
-  - Market
-  - Stats
-  - Weather
-  - Bets
-- Adds a model board using transparent, available inputs instead of fabricated numbers.
-- Adds additive Supabase tables for game snapshots and prediction results.
-- Adds stronger responsive formatting and a more terminal-like layout.
-- Keeps local fallback if Supabase is temporarily unavailable.
+- `index.html`
+- `app.js`
+- `styles.css`
+- `README.md`
 
-## Free data approach
+## Important connection rule
 
-**Scores/schedules:** ESPN public scoreboard endpoints.
+Keep your existing working `config.js` in the GitHub repository. The V6 app reads `window.BT_CONFIG` from that file and does not replace it. Your existing config uses the Supabase project URL and public publishable/anon key. fileciteturn0file5L6-L10
 
-**Game detail:** ESPN public summary endpoint.
+V6 does not use local storage as the shared database. Local storage is only a temporary browser cache. Shared bets continue to use Supabase, and V6 adds shared game snapshots and prediction history.
 
-**Market data:** only event odds returned by the ESPN feed. V5 does not claim unlimited free sportsbook odds. If the feed does not return odds, the UI says they are unavailable.
+## V6 upgrades
 
-**Weather:** ESPN event weather when available. The next adapter can add Open-Meteo venue geocoding without changing the rest of the app.
+- Keeps the V5 live ESPN scoreboard and game-terminal structure.
+- Keeps shared Supabase bets and three-bettor workflow.
+- Adds automatic game snapshots after refresh.
+- Adds prediction logging with model version, probability, odds, implied probability and edge.
+- Adds a Snapshots page for stored game-state history.
+- Adds prediction-history and basic accuracy metrics.
+- Uses real returned ESPN fields only; it does not fabricate missing odds or stats.
+- Keeps the existing config and database connection contract unchanged.
 
-**Database:** Supabase free tier.
+## Database
 
-**Hosting:** GitHub Pages.
+V6 expects the additive V5 tables `game_snapshots` and `prediction_results` to exist. The supplied V5 SQL already defines those tables and their policies. fileciteturn0file4L5-L18 fileciteturn0file4L24-L38
 
-## Install V5
+If those tables are already installed from V5, **do not replace your existing SQL just to install this V6 front end**.
 
-1. Back up the current working V4 repository.
-2. Replace `app.js`, `index.html`, `styles.css`, `README.md`, and optionally run the additive `supabase.sql`.
-3. **Keep your current working `config.js` exactly as it is.**
-4. If you run the SQL, run the whole V5 `supabase.sql` in Supabase SQL Editor.
-5. Make sure Realtime remains enabled for `public.bets`.
-6. Commit and let GitHub Pages deploy.
-7. Hard refresh the site (`Ctrl + Shift + R`).
+If they are not installed, run the existing additive V5 SQL once in Supabase. Do not replace your working core schema.
 
-## Expected config.js
+## Deploy
 
-```js
-window.BT_CONFIG = {
-  SUPABASE_URL: "https://YOUR-PROJECT.supabase.co/rest/v1/",
-  SUPABASE_ANON_KEY: "YOUR_PUBLIC_ANON_KEY",
-  ROOM_CODE: "FRIENDS-1",
-  ESPN_REFRESH_MS: 60000
-};
-```
+1. Back up V5.
+2. Replace only `app.js`, `index.html`, `styles.css`, and `README.md`.
+3. Keep the existing `config.js`.
+4. Keep the existing `supabase.sql`.
+5. Commit/push to GitHub.
+6. Hard refresh with `Ctrl + Shift + R`.
 
-If V4 is already connected, do not change these values.
+The V5 project already identifies `config.js` as an existing file that should not be replaced. fileciteturn0file2L42-L47
 
-## V5 build philosophy
+## V6 model philosophy
 
-The terminal should prefer a missing-data message over fake data. A future trained model should only learn from logged predictions and settled outcomes, with model version, sample size, calibration and backtests recorded.
+V6 does not claim to be a trained predictive model yet. It creates the data pipeline needed to evaluate one: real game inputs → snapshots → explicit predictions → logged outcomes → calibration/backtesting later.
 
-## Next build
-
-V6 can add:
-- automatic prediction logging per game
-- historical team-form cache
-- sport-specific features
-- player/team stat panels
-- line movement snapshots when a free source supplies them
-- calibration and backtesting dashboards
-- automatic bet settlement
-- PWA/mobile polish
+Missing free-feed data remains visibly missing instead of being guessed.

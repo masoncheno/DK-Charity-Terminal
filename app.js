@@ -2,7 +2,7 @@
 "use strict";
 
 const cfg = window.BT_CONFIG || {};
-const KEY = "bt_local_bets_v5";
+const KEY = "bt_local_bets_v6";
 const REFRESH = Number(cfg.ESPN_REFRESH_MS) || 60000;
 
 const state = {
@@ -11,12 +11,15 @@ const state = {
   games: [],
   selectedGame: null,
   gameData: {},
+  snapshots: [],
+  predictions: [],
   supabase: null,
   live: false,
   loading: false,
   lastRefresh: null,
   errors: [],
-  filters: { sport:"", search:"", status:"all" }
+  filters: { sport:"", search:"", status:"all" },
+  detailTab: "overview"
 };
 
 const SPORTS = [
@@ -50,11 +53,98 @@ function metric(label,value,cl=""){
   return `<div class="card metric"><div class="label">${label}</div><div class="value ${cl}">${value}</div></div>`;
 }
 
+
+function modelVersion(){ return "V6-baseline-1"; }
+
+function snapshotId(g){
+  return `${cfg.ROOM_CODE||"FRIENDS-1"}:${g.sourceId}:${Date.now()}`;
+}
+
+function predictionId(g, selection){
+  return `${cfg.ROOM_CODE||"FRIENDS-1"}:${g.sourceId}:${selection}:${Date.now()}`;
+}
+
+function latestPredictionForGame(g){
+  return state.predictions.find(p=>p.source_game_id===g.sourceId) || null;
+}
+
+function predictionAccuracy(){
+  const settled=state.predictions.filter(p=>p.outcome==="Win"||p.outcome==="Loss"||p.outcome==="Push");
+  if(!settled.length) return {n:0, wins:0, rate:0};
+  const wins=settled.filter(p=>p.outcome==="Win").length;
+  return {n:settled.length,wins,rate:wins/settled.length*100};
+}
+
+async function saveSnapshot(g){
+  if(!state.supabase || !g?.sourceId) return;
+  const row={
+    id:snapshotId(g), room_code:cfg.ROOM_CODE||"FRIENDS-1", source:"ESPN",
+    source_game_id:g.sourceId, sport:g.sport, matchup:`${g.away} @ ${g.home}`,
+    game_date:g.date||null,status:g.status,away_score:g.awayScore==null?null:String(g.awayScore),
+    home_score:g.homeScore==null?null:String(g.homeScore),
+    odds_json:g.odds||[],weather_json:g.weather||null
+  };
+  const {error}=await state.supabase.from("game_snapshots").upsert(row);
+  if(error && !String(error.message||"").includes("relation")) console.warn("Snapshot save failed",error);
+}
+
+async function saveSnapshots(){
+  if(!state.supabase || !state.games.length) return;
+  await Promise.all(state.games.slice(0,100).map(saveSnapshot));
+}
+
+async function loadModelHistory(){
+  if(!state.supabase) return;
+  try{
+    const [p,s]=await Promise.all([
+      state.supabase.from("prediction_results").select("*").eq("room_code",cfg.ROOM_CODE||"FRIENDS-1").order("predicted_at",{ascending:false}).limit(500),
+      state.supabase.from("game_snapshots").select("*").eq("room_code",cfg.ROOM_CODE||"FRIENDS-1").order("snapshot_at",{ascending:false}).limit(500)
+    ]);
+    if(!p.error && p.data) state.predictions=p.data;
+    if(!s.error && s.data) state.snapshots=s.data;
+  }catch(e){ console.warn("V6 history load failed",e); }
+}
+
+async function logPrediction(g, selection, probability, odds){
+  if(!state.supabase || !g?.sourceId) return false;
+  const p=Number(probability), o=Number(odds);
+  const implied=o?oddsToProb(o):null;
+  const edge=implied==null?null:p-implied;
+  const row={
+    id:predictionId(g,selection), room_code:cfg.ROOM_CODE||"FRIENDS-1",
+    prediction_id:uid(), source_game_id:g.sourceId, sport:g.sport,
+    model_version:modelVersion(), selection, probability:p,
+    market_odds:Number.isFinite(o)?o:null, implied_probability:implied,
+    edge, outcome:null, predicted_at:new Date().toISOString(), settled_at:null
+  };
+  const {data,error}=await state.supabase.from("prediction_results").insert(row).select().single();
+  if(!error && data){state.predictions.unshift(data);return true;}
+  if(error) console.warn("Prediction log failed",error);
+  return false;
+}
+
+function renderPredictionHistory(){
+  const a=predictionAccuracy();
+  const recent=state.predictions.slice(0,12);
+  return `<div class="grid four">
+    ${metric("Logged predictions",a.n)}
+    ${metric("Prediction wins",a.wins)}
+    ${metric("Win rate",pct(a.rate))}
+    ${metric("Snapshots",state.snapshots.length)}
+  </div>
+  <section class="card" style="margin-top:14px">
+    <div class="section-head"><h2>Prediction history</h2><span>${modelVersion()}</span></div>
+    ${recent.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Sport</th><th>Selection</th><th>Prob.</th><th>Odds</th><th>Edge</th><th>Outcome</th></tr></thead><tbody>
+    ${recent.map(p=>`<tr><td>${formatDate(p.predicted_at)}</td><td>${esc(p.sport)}</td><td>${esc(p.selection)}</td><td>${p.probability==null?"—":pct(Number(p.probability))}</td><td>${p.market_odds==null?"—":fmtOdds(p.market_odds)}</td><td>${p.edge==null?"—":pct(Number(p.edge))}</td><td>${esc(p.outcome||"Pending")}</td></tr>`).join("")}
+    </tbody></table></div>`:`<div class="empty">No predictions have been logged yet. V6 only learns from predictions explicitly logged against real game inputs.</div>`}
+  </section>`;
+}
+
 function render(){
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x.dataset.page===state.page));
   const views = {
     dashboard, bets:betsPage, games:gamesPage, analytics:analyticsPage,
-    model:modelPage, settings:settingsPage, "game-detail":()=>gameDetailPage(state.selectedGame)
+    model:modelPage, settings:settingsPage, snapshots:snapshotsPage, "game-detail":()=>gameDetailPage(state.selectedGame)
   };
   $("#main").innerHTML = (views[state.page] || dashboard)();
   bindPage();
@@ -71,7 +161,7 @@ function dashboard(){
   const live=state.games.filter(g=>g.status==="in").length;
 
   return `<div class="page-title">
-    <div><div class="eyebrow">V5 • LIVE TERMINAL</div><h1>Command Center</h1><p>Live games, real feed data, shared bets, market snapshots and transparent model factors.</p></div>
+    <div><div class="eyebrow">V6 • LIVE TERMINAL</div><h1>Command Center</h1><p>Live games, real feed data, shared bets, market snapshots and transparent model factors.</p></div>
     <div class="title-actions"><button class="ghost" id="refreshDashboard">↻ Refresh All</button><button class="primary" id="addBetBtn">+ Add Bet</button></div>
   </div>
   <div class="grid stats">
@@ -96,11 +186,11 @@ function dashboard(){
     <section class="card"><div class="section-head"><h2>Recent Bets</h2><button class="ghost" data-go="bets">View all</button></div>${betTable(state.bets.slice().reverse().slice(0,8))}</section>
     <section class="card">
       <div class="section-head"><h2>Terminal Status</h2><span>${state.lastRefresh?state.lastRefresh.toLocaleTimeString():"—"}</span></div>
-      <div class="kpi"><span>Shared Supabase</span><b>${state.live?"CONNECTED":"LOCAL FALLBACK"}</b></div>
+      <div class="kpi"><span>Shared Supabase</span><b>${state.live?"CONNECTED":"NOT CONNECTED"}</b></div>
       <div class="kpi"><span>Score source</span><b>ESPN public feed</b></div>
       <div class="kpi"><span>Market source</span><b>ESPN event odds when supplied</b></div>
       <div class="kpi"><span>Weather</span><b>ESPN / Open-Meteo</b></div>
-      <div class="notice">V5 never invents odds, injuries, stats or edges. If a free source does not return a field, the terminal shows “not available” instead.</div>
+      <div class="notice">V6 never invents odds, injuries, stats or edges. Local storage is only a temporary browser cache; Supabase is the shared source of truth when connected. If a free source does not return a field, the terminal shows “not available” instead.</div>
     </section>
   </div>`;
 }
@@ -173,7 +263,7 @@ function betsPage(){
 
 function gamesPage(){
   const filtered=filteredGames();
-  return `<div class="page-title"><div><div class="eyebrow">REAL SCOREBOARD FEED</div><h1>Games Center</h1><p>Schedules and scores from ESPN's public scoreboard endpoints. Click a game for the V5 game terminal.</p></div><button class="ghost" id="refreshGames">↻ Refresh</button></div>
+  return `<div class="page-title"><div><div class="eyebrow">REAL SCOREBOARD FEED</div><h1>Games Center</h1><p>Schedules and scores from ESPN's public scoreboard endpoints. Click a game for the V6 game terminal.</p></div><button class="ghost" id="refreshGames">↻ Refresh</button></div>
   <div class="filters"><select id="gameSportFilter"><option value="">All sports</option>${SPORTS.map(x=>`<option ${state.filters.sport===x[0]?"selected":""}>${x[0]}</option>`).join("")}</select>
   <select id="gameStatusFilter"><option value="all">All statuses</option><option value="in">Live</option><option value="pre">Upcoming</option><option value="post">Final</option></select>
   <input id="gameSearch" value="${esc(state.filters.search)}" placeholder="Search team / matchup"></div>
@@ -204,7 +294,7 @@ function detailOverview(g,m,market,d){
         <div class="model-factor"><span>Model state</span><b>${esc(m.label)}</b></div>
         <div class="model-factor"><span>${esc(g.away)}</span><b>${m.awayProb}%</b></div>
         <div class="model-factor"><span>${esc(g.home)}</span><b>${m.homeProb}%</b></div>
-        <div class="model-factor"><span>Market edge</span><b>${market?calculateEdge(market,m,g):"No market price"}</b></div>
+        <div class="model-factor"><span>Market edge</span><b>${market?calculateEdge(market,m,g):"No market price"}</b></div><button class="primary" id="logGamePrediction" style="margin-top:12px">Log current home-side prediction</button>
       </div>
     </section>
     <section class="card">
@@ -213,7 +303,7 @@ function detailOverview(g,m,market,d){
       ${infoRow("Broadcast",d.broadcasts?.join(", ")||"Not available")}
       ${infoRow("Attendance",d.attendance??"Not available")}
       ${infoRow("Source event ID",g.sourceId||"—")}
-      <div class="notice">Model probabilities are transparent baseline estimates, not guaranteed forecasts. V5 only displays an edge when a real market price and a model probability are both available.</div>
+      <div class="notice">Model probabilities are transparent baseline estimates, not guaranteed forecasts. V6 only displays an edge when a real market price and a model probability are both available.</div>
     </section>
   </div>`;
 }
@@ -236,7 +326,7 @@ function detailStats(g,d){
 function detailWeather(g,d){
   const w=d.weather||g.weather;
   if(w) return `<section class="card"><div class="section-head"><h2>Weather</h2><span>event feed</span></div><div class="weather-grid">${infoRow("Condition",w.displayValue||w.condition||"—")}${infoRow("Temperature",w.temperature!=null?`${w.temperature}°`:"—")}${infoRow("Wind",w.windSpeed?`${w.windSpeed} mph`:"—")}${infoRow("Source","ESPN event data")}</div></section>`;
-  return `<section class="card"><div class="empty">No weather object was returned for this event. V5 does not fabricate conditions. Open-Meteo fallback is available when a venue city can be resolved.</div></section>`;
+  return `<section class="card"><div class="empty">No weather object was returned for this event. V6 does not fabricate conditions. Open-Meteo fallback is available when a venue city can be resolved.</div></section>`;
 }
 
 function detailBets(g){
@@ -261,7 +351,7 @@ function analyticsPage(){
   <div class="grid two"><section class="card"><div class="section-head"><h2>Performance by sport</h2></div>${bySport.length?bySport.map(s=>analysisRow(s,state.bets.filter(b=>b.sport===s))).join(""):`<div class="empty">No bets yet.</div>`}</section>
   <section class="card"><div class="section-head"><h2>Performance by bettor</h2></div>${byBettor.map(([n,bs])=>analysisRow(n,bs)).join("")}</section></div>
   <section class="card" style="margin-top:14px"><div class="section-head"><h2>Risk snapshot</h2><span>${settled.length} settled</span></div>${riskSnapshot()}</section>
-  <section class="card" style="margin-top:14px"><div class="section-head"><h2>Model data quality</h2></div><div class="notice">Prediction learning is separated from the bet ledger. V5 stores model version, inputs, price and outcome so later versions can be compared by sample size and backtest results.</div></section>`;
+  <section class="card" style="margin-top:14px"><div class="section-head"><h2>Model data quality</h2></div><div class="notice">Prediction learning is separated from the bet ledger. V6 stores model version, inputs, price and outcome so later versions can be compared by sample size and backtest results.</div></section>`;
 }
 
 function analysisRow(name,bs){
@@ -276,7 +366,7 @@ function riskSnapshot(){
 }
 
 function modelPage(){
-  return `<div class="page-title"><div><div class="eyebrow">MODEL LAB</div><h1>Solo Modeler</h1><p>V5 combines real event inputs with transparent probability math. Training comes only after enough logged outcomes exist.</p></div></div>
+  return `<div class="page-title"><div><div class="eyebrow">MODEL LAB • V6</div><h1>Solo Modeler</h1><p>V6 logs transparent predictions, game snapshots, market inputs and outcomes so the model can be evaluated over time.</p></div></div>
   <div class="grid two">
     <section class="card"><div class="section-head"><h2>Market calculator</h2><span>live math</span></div>
       <label>American odds<input id="modelOdds" type="number" value="-110"></label>
@@ -284,7 +374,7 @@ function modelPage(){
       <div class="grid two" style="margin-top:16px">${metric("Implied probability",pct(oddsToProb(-110)))}${metric("Edge",pct(50-oddsToProb(-110)))}</div>
       <div id="modelCalcNote" class="notice">Positive edge means the entered probability is above the market's implied probability. It is not proof that a bet will win.</div>
     </section>
-    <section class="card"><div class="section-head"><h2>Model pipeline</h2><span>V5</span></div>
+    <section class="card"><div class="section-head"><h2>Model pipeline</h2><span>V6</span></div>
       ${["ESPN game state","Team record factor","Market price when supplied","Prediction logging","Outcome settlement","Backtest / calibration","Sport-specific features"].map((x,i)=>`<div class="kpi"><span>${x}</span><b class="${i<4?"pos":""}">${i<4?"ACTIVE":"NEXT"}</b></div>`).join("")}
     </section>
   </div>
@@ -299,12 +389,23 @@ function modelBoard(){
   }).join("")}</tbody></table></div>`;
 }
 
+
+function snapshotsPage(){
+  return `<div class="page-title"><div><div class="eyebrow">DATA HISTORY • V6</div><h1>Snapshots</h1><p>Real ESPN game-state snapshots stored in the shared database for later model evaluation.</p></div><button class="ghost" id="refreshSnapshots">↻ Refresh</button></div>
+  <div class="grid four">${metric("Stored snapshots",state.snapshots.length)}${metric("Predictions",state.predictions.length)}${metric("Model version",modelVersion())}${metric("Database",state.live?"CONNECTED":"NOT CONNECTED")}</div>
+  <section class="card" style="margin-top:14px"><div class="section-head"><h2>Recent snapshots</h2><span>Newest first</span></div>
+  ${state.snapshots.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Sport</th><th>Matchup</th><th>Status</th><th>Score</th><th>Markets</th></tr></thead><tbody>
+  ${state.snapshots.slice(0,50).map(s=>`<tr><td>${formatDate(s.snapshot_at)}</td><td>${esc(s.sport)}</td><td>${esc(s.matchup)}</td><td>${esc(s.status||"")}</td><td>${esc(s.away_score??"—")} - ${esc(s.home_score??"—")}</td><td>${Array.isArray(s.odds_json)?s.odds_json.length:"—"}</td></tr>`).join("")}
+  </tbody></table></div>`:`<div class="empty">No snapshots loaded. Connect Supabase and refresh games.</div>`}
+  </section>`;
+}
+
 function settingsPage(){
   return `<div class="page-title"><div><div class="eyebrow">SYSTEM</div><h1>Settings</h1><p>Free deployment and data-source status.</p></div></div>
   <section class="card"><h2>Shared database</h2>${infoRow("Supabase URL configured",cfg.SUPABASE_URL?"YES":"NO")}${infoRow("Realtime",state.live?"CONNECTED":"NOT CONNECTED")}${infoRow("Room",cfg.ROOM_CODE||"FRIENDS-1")}
-  <div class="notice">Keep your existing working <b>config.js</b>. V5 does not require replacing it. Only the public Supabase anon key belongs in the browser.</div></section>
+  <div class="notice">Keep your existing working <b>config.js</b>. V6 does not require replacing it. Only the public Supabase anon key belongs in the browser.</div></section>
   <section class="card" style="margin-top:14px"><h2>Free data stack</h2>${infoRow("Scores / schedules","ESPN public scoreboard")}${infoRow("Event details","ESPN summary endpoint")}${infoRow("Weather","ESPN event weather when supplied")}${infoRow("Fallback weather","Open-Meteo")}${infoRow("Database","Supabase free tier")}${infoRow("Hosting","GitHub Pages")}</section>
-  <section class="card" style="margin-top:14px"><h2>Data limitations</h2><div class="notice">There is no honest promise of unlimited free sportsbook odds. V5 uses market data only when the free event feed actually returns it. Missing odds are shown as missing instead of being guessed.</div></section>`;
+  <section class="card" style="margin-top:14px"><h2>Data limitations</h2><div class="notice">There is no honest promise of unlimited free sportsbook odds. V6 uses market data only when the free event feed actually returns it. Missing odds are shown as missing instead of being guessed.</div></section>`;
 }
 
 function filteredGames(){
@@ -317,6 +418,7 @@ function bindPage(){
   $("#addBetTop")?.addEventListener("click",openBet);
   $("#refreshDashboard")?.addEventListener("click",refreshAll);
   $("#refreshGames")?.addEventListener("click",loadGames);
+  $("#refreshSnapshots")?.addEventListener("click",async()=>{await loadModelHistory();render();});
   $("#backGames")?.addEventListener("click",()=>{state.selectedGame=null;state.page="games";render();});
   $("#betThisGame")?.addEventListener("click",()=>{
     const g=state.selectedGame; openBet();
@@ -332,6 +434,14 @@ function bindPage(){
     state.selectedGame=g; state.page="game-detail"; render(); await loadGameDetails(g);
   }));
   document.querySelectorAll(".detail-tab").forEach(x=>x.addEventListener("click",()=>switchDetail(x.dataset.detail)));
+  $("#logGamePrediction")?.addEventListener("click", async ()=>{
+    const g=state.selectedGame, m=modelForGame(g), market=bestMarket(g);
+    const odds=market?.homeMoneyline;
+    if(!state.supabase){ alert("Supabase is not connected. V6 will not log a prediction locally."); return; }
+    const ok=await logPrediction(g,g.home,m.homeProb,odds);
+    alert(ok?"Prediction logged to Supabase.":"Prediction could not be logged.");
+    if(ok) render();
+  });
   $("#modelOdds")?.addEventListener("input",updateModelCalc);
   $("#modelEdgeProb")?.addEventListener("input",updateModelCalc);
 }
@@ -372,7 +482,8 @@ async function initSupabase(){
     state.supabase=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
     const {data,error}=await state.supabase.from("bets").select("*").eq("room_code",cfg.ROOM_CODE||"FRIENDS-1").order("created_at",{ascending:true});
     if(!error&&data){state.bets=data;saveLocal();render();}
-    const channel=state.supabase.channel("bets-live-v5")
+    await loadModelHistory();
+    const channel=state.supabase.channel("bets-live-v6")
       .on("postgres_changes",{event:"*",schema:"public",table:"bets",filter:`room_code=eq.${cfg.ROOM_CODE||"FRIENDS-1"}`},payload=>{
         if(payload.eventType==="INSERT"&&!state.bets.some(x=>x.id===payload.new.id))state.bets.push(payload.new);
         if(payload.eventType==="UPDATE"){const i=state.bets.findIndex(x=>x.id===payload.new.id);if(i>=0)state.bets[i]=payload.new;}
@@ -445,6 +556,7 @@ async function loadGames(){
     return rank(a)-rank(b)||new Date(a.date||0)-new Date(b.date||0);
   });
   state.errors=errors; state.lastRefresh=new Date(); state.loading=false; render();
+  if(state.supabase) saveSnapshots();
 }
 
 async function loadGameDetails(g){
