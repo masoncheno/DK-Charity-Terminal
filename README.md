@@ -1,84 +1,77 @@
-# Betting Terminal V6
+# Betting Terminal V5 — Live Shared Terminal
 
-V6 builds on the working V5 terminal and focuses on turning it into a real data/model foundation instead of a static dashboard.
+V5 is an additive upgrade from the working V4 foundation.
 
-## Keep your existing config.js
+## What changed
 
-Do NOT replace the working `config.js`.
+- Keeps the shared Supabase bet ledger and three-bettor setup.
+- Keeps the existing `config.js`; **do not replace it**.
+- Upgrades the Games Center with:
+  - live/upcoming/final filters
+  - team search
+  - ESPN event IDs
+  - venue/event information
+  - event market data when ESPN actually supplies it
+- Adds a game terminal with:
+  - Overview
+  - Market
+  - Stats
+  - Weather
+  - Bets
+- Adds a model board using transparent, available inputs instead of fabricated numbers.
+- Adds additive Supabase tables for game snapshots and prediction results.
+- Adds stronger responsive formatting and a more terminal-like layout.
+- Keeps local fallback if Supabase is temporarily unavailable.
 
-V6 accepts either:
-- `https://YOURPROJECT.supabase.co`
-- `https://YOURPROJECT.supabase.co/rest/v1/`
+## Free data approach
 
-The app normalizes the second form automatically for the Supabase client.
+**Scores/schedules:** ESPN public scoreboard endpoints.
 
-Expected config:
+**Game detail:** ESPN public summary endpoint.
+
+**Market data:** only event odds returned by the ESPN feed. V5 does not claim unlimited free sportsbook odds. If the feed does not return odds, the UI says they are unavailable.
+
+**Weather:** ESPN event weather when available. The next adapter can add Open-Meteo venue geocoding without changing the rest of the app.
+
+**Database:** Supabase free tier.
+
+**Hosting:** GitHub Pages.
+
+## Install V5
+
+1. Back up the current working V4 repository.
+2. Replace `app.js`, `index.html`, `styles.css`, `README.md`, and optionally run the additive `supabase.sql`.
+3. **Keep your current working `config.js` exactly as it is.**
+4. If you run the SQL, run the whole V5 `supabase.sql` in Supabase SQL Editor.
+5. Make sure Realtime remains enabled for `public.bets`.
+6. Commit and let GitHub Pages deploy.
+7. Hard refresh the site (`Ctrl + Shift + R`).
+
+## Expected config.js
 
 ```js
 window.BT_CONFIG = {
-  SUPABASE_URL: "https://YOURPROJECT.supabase.co/rest/v1/",
-  SUPABASE_ANON_KEY: "YOUR_ANON_KEY",
+  SUPABASE_URL: "https://YOUR-PROJECT.supabase.co/rest/v1/",
+  SUPABASE_ANON_KEY: "YOUR_PUBLIC_ANON_KEY",
   ROOM_CODE: "FRIENDS-1",
   ESPN_REFRESH_MS: 60000
 };
 ```
 
-## Replace these files
+If V4 is already connected, do not change these values.
 
-Replace:
-- `index.html`
-- `app.js`
-- `styles.css`
-- `README.md`
+## V5 build philosophy
 
-Keep:
-- `config.js`
+The terminal should prefer a missing-data message over fake data. A future trained model should only learn from logged predictions and settled outcomes, with model version, sample size, calibration and backtests recorded.
 
-Run `supabase.sql` once in Supabase SQL Editor.
+## Next build
 
-## V6 additions
-
-- Historical game snapshot storage
-- Prediction-result storage
-- Model Lab with baseline probability + market comparison
-- Model prediction logging
-- Team-form signals from ESPN scoreboard history when available
-- Standings panels
-- Team/player/event information from ESPN
-- Automatic score/game snapshot capture
-- Better shared/live connection validation
-- No fake sportsbook lines: if ESPN does not supply a market, V6 says unavailable
-- Local mode is explicitly labeled rather than silently pretending to be shared
-- Realtime bet ledger remains the shared source for the group
-
-## Important data rule
-
-V6 never fabricates current games, odds, injuries, stats, or sportsbook markets.
-
-ESPN is used for free public sports data. Market data is displayed only when the ESPN event actually contains it.
-
-## Model philosophy
-
-The V6 model is intentionally transparent. It is not presented as a proven betting edge.
-
-The model combines available:
-- current score state
-- home/away context
-- team records
-- recent form when available
-- market implied probability when available
-
-Every prediction can be logged into `prediction_results`, creating the dataset needed for later calibration/backtesting.
-
-## V7 direction
-
-Once V6 is stable and collecting snapshots:
-- sport-specific models
-- stronger recent-form features
-- player availability/injury inputs
-- historical backtesting
-- calibration curves
+V6 can add:
+- automatic prediction logging per game
+- historical team-form cache
+- sport-specific features
+- player/team stat panels
+- line movement snapshots when a free source supplies them
+- calibration and backtesting dashboards
 - automatic bet settlement
-- line-movement history
-- player prop data where a free source actually exposes it
-- model learning from the stored dataset
+- PWA/mobile polish
